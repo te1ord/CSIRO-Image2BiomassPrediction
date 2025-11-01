@@ -1,0 +1,18 @@
+# Data configuration
+data_root: /home/ib/CSIRO-Image2BiomassPrediction/data/csiro-biomass
+train_csv: ${data.data_root}/train.csv
+test_csv: ${data.data_root}/test.csv
+
+# Dataset parameters
+sample_every_n: 5  # Sample every nth image during training
+
+# Target mapping
+target_mapping:
+  Dry_Clover_g: 0
+  Dry_Dead_g: 1
+  Dry_Green_g: 2
+  Dry_Total_g: 3
+  GDM_g: 4
+
+n_targets: 5
+

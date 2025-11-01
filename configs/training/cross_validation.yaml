@@ -1,0 +1,13 @@
+# Training configuration
+cross_validation:
+  n_splits: 5
+  train_ratio: 0.8
+  random_seed: 42
+
+# Training parameters
+batch_size: 1  # For embedding extraction
+num_workers: 0
+
+# Logging
+log_interval: 100  # Log every N batches
+

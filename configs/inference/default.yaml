@@ -1,0 +1,10 @@
+# Inference configuration
+batch_size: 1
+num_workers: 0
+
+# Output
+submission_file: submission.csv
+
+# Model checkpoint
+model_checkpoint: models/lasso_ensemble.pkl
+

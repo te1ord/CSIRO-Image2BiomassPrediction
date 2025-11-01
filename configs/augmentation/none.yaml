@@ -1,0 +1,9 @@
+# Augmentation configuration
+# Currently no augmentations are used (as in baseline notebook)
+
+use_augmentation: false
+
+# Placeholder for future augmentations
+train_transforms: []
+test_transforms: []
+

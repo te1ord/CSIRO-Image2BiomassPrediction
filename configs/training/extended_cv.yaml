@@ -1,0 +1,17 @@
+# Example: Extended cross-validation configuration
+# Usage: python scripts/train.py training=extended_cv
+
+# @package _global_
+
+cross_validation:
+  n_splits: 10  # More folds for more robust validation
+  train_ratio: 0.8
+  random_seed: 42
+
+# Training parameters
+batch_size: 1
+num_workers: 0
+
+# Logging
+log_interval: 50  # More frequent logging
+

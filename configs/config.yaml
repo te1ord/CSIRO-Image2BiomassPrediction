@@ -1,0 +1,18 @@
+defaults:
+  - data: default
+  - model: dinov2_lasso
+  - training: cross_validation
+  - inference: default
+  - augmentation: none
+  - _self_
+
+# Global settings
+seed: 42
+device: cuda
+output_dir: outputs
+
+# Hydra configuration
+hydra:
+  run:
+    dir: ${output_dir}/${now:%Y-%m-%d_%H-%M-%S}
+
