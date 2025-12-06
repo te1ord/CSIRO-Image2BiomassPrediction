@@ -1,0 +1,22 @@
+# Two-Stream Multi-Head Model Configuration
+
+# Model type: 'two_stream', 'tiled', or 'tiled_film'
+model_type: two_stream
+
+# Backbone configuration
+backbone:
+  name: convnext_tiny  # timm model name
+  pretrained: true
+
+# Head configuration
+heads:
+  dropout: 0.30
+  hidden_ratio: 0.25
+
+# Tiled model settings (only for 'tiled' and 'tiled_film' types)
+tiled:
+  grid: [2, 2]
+
+# Checkpoint
+save_path: ${checkpoint_dir}
+

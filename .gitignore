@@ -45,6 +45,7 @@ data/csiro-biomass/test/
 *.zip
 
 # Models
+models/
 *.pkl
 *.pth
 *.pt

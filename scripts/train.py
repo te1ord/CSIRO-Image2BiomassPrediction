@@ -1,92 +1,101 @@
 """
-Training script for DINOv2 + Lasso baseline
+Training script for Two-Stream Multi-Head model
+
+Usage:
+    python scripts/train.py
+    python scripts/train.py model=dinov2_tiled
+    python scripts/train.py training.batch_size=16 data.img_size=512
 """
 import os
 import sys
 import torch
-import pandas as pd
 import hydra
-from omegaconf import DictConfig
-from transformers import AutoImageProcessor, AutoModel
+from omegaconf import DictConfig, OmegaConf
 
 # Add src to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.models.dinov2_lasso import DINOv2FeatureExtractor, LassoEnsemble
-from src.trainer.cross_validator import CrossValidator
-from src.utils.embeddings import extract_train_embeddings
+from src.models.two_stream import build_model
+from src.trainer.pytorch_trainer import train_kfold
+from src.datasets.biomass_dataset import prepare_train_df
+
+
+def set_seed(seed: int):
+    """Set random seeds for reproducibility"""
+    import random
+    import numpy as np
+    
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
 def main(cfg: DictConfig):
     """Main training function"""
     
-    print("=" * 80)
-    print("DINOv2 + Lasso Baseline Training")
-    print("=" * 80)
+    print("=" * 70)
+    print("CSIRO Biomass Prediction - Two-Stream Multi-Head Training")
+    print("=" * 70)
+    print("\nConfiguration:")
+    print(OmegaConf.to_yaml(cfg))
     
-    # Set device
-    device = cfg.device if torch.cuda.is_available() else 'cpu'
+    # Set seed
+    set_seed(cfg.seed)
+    
+    # Device
+    device = cfg.device if torch.cuda.is_available() else "cpu"
     print(f"\nDevice: {device}")
     
-    # Load DINOv2 model and processor
-    print("\n[1/4] Loading DINOv2 model...")
-    processor = AutoImageProcessor.from_pretrained(cfg.model.dinov2.processor_path)
-    dinov2_model = AutoModel.from_pretrained(cfg.model.dinov2.model_path)
-    dinov2_model = dinov2_model.to(device)
-    dinov2_model.eval()
-    print("✓ Model loaded successfully")
-    
-    # Load training data
-    print("\n[2/4] Loading training data...")
-    train_df = pd.read_csv(cfg.data.train_csv)
+    # Load and prepare training data
+    print("\n[1/3] Loading training data...")
+    train_df = prepare_train_df(cfg.data.train_csv)
     print(f"✓ Loaded {len(train_df)} training samples")
     
-    # Extract embeddings
-    print("\n[3/4] Extracting embeddings...")
-    embeds, targets = extract_train_embeddings(
+    # Model factory function
+    def model_fn():
+        return build_model(
+            model_type=cfg.model.model_type,
+            backbone_name=cfg.model.backbone.name,
+            pretrained=cfg.model.backbone.pretrained,
+            dropout=cfg.model.heads.dropout,
+            hidden_ratio=cfg.model.heads.hidden_ratio,
+            grid=tuple(cfg.model.tiled.grid) if "tiled" in cfg.model.model_type else None,
+        )
+    
+    print(f"\n[2/3] Model: {cfg.model.model_type} with {cfg.model.backbone.name}")
+    
+    # Training
+    print(f"\n[3/3] Starting {cfg.data.n_folds}-fold cross-validation...")
+    print(f"  Stage 1: {cfg.training.stage1.epochs} epochs (frozen), LR={cfg.training.stage1.lr}")
+    print(f"  Stage 2: {cfg.training.stage2.epochs} epochs (fine-tune), LR={cfg.training.stage2.lr}")
+    
+    results = train_kfold(
+        model_fn=model_fn,
         train_df=train_df,
-        root_dir=cfg.data.data_root + "/",
-        model=dinov2_model,
-        processor=processor,
+        image_dir=cfg.data.train_image_dir,
+        n_splits=cfg.data.n_folds,
+        img_size=cfg.data.img_size,
+        # Trainer kwargs
         device=device,
-        sample_every_n=cfg.data.sample_every_n
+        freeze_epochs=cfg.training.stage1.epochs,
+        freeze_lr=cfg.training.stage1.lr,
+        unfreeze_epochs=cfg.training.stage2.epochs,
+        unfreeze_lr=cfg.training.stage2.lr,
+        batch_size=cfg.training.batch_size,
+        num_workers=cfg.training.num_workers,
+        use_amp=cfg.training.use_amp,
+        checkpoint_dir=cfg.checkpoint_dir,
+        save_best_only=cfg.training.save_best_only,
     )
-    print(f"✓ Extracted {len(embeds)} embeddings")
-    
-    # Train Lasso ensemble with cross-validation
-    print("\n[4/4] Training Lasso ensemble with cross-validation...")
-    lasso_ensemble = LassoEnsemble(
-        n_targets=cfg.model.lasso.n_targets,
-        n_folds=cfg.model.lasso.n_folds,
-        alpha=cfg.model.lasso.alpha
-    )
-    
-    cross_validator = CrossValidator(
-        n_splits=cfg.training.cross_validation.n_splits,
-        train_ratio=cfg.training.cross_validation.train_ratio,
-        random_seed=cfg.training.cross_validation.random_seed
-    )
-    
-    results = cross_validator.train(embeds, targets, lasso_ensemble)
-    
-    # Save model
-    os.makedirs(os.path.dirname(cfg.model.save_path), exist_ok=True)
-    lasso_ensemble.save(cfg.model.save_path)
-    print(f"\n✓ Model saved to {cfg.model.save_path}")
-    
-    # Print summary
-    print("\n" + "=" * 80)
-    print("Training Summary")
-    print("=" * 80)
-    for target_name, metrics in results.items():
-        print(f"\n{target_name}:")
-        print(f"  Avg Train R²: {metrics['avg_train_r2']:.4f}")
-        print(f"  Avg Val R²: {metrics['avg_val_r2']:.4f}")
     
     print("\n✓ Training complete!")
+    print(f"Checkpoints saved to: {cfg.checkpoint_dir}")
+    
+    return results
 
 
 if __name__ == "__main__":
     main()
-

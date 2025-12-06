@@ -1,0 +1,30 @@
+# Data Augmentation Configuration
+# Augmentations are applied independently to left and right patches
+
+# Enable/disable augmentation
+use_augmentation: true
+
+# Geometric augmentations
+geometric:
+  horizontal_flip:
+    p: 0.5
+  vertical_flip:
+    p: 0.5
+  random_rotate_90:
+    p: 0.5
+
+# Color augmentations
+color:
+  color_jitter:
+    enabled: true
+    brightness: 0.2
+    contrast: 0.2
+    saturation: 0.2
+    hue: 0.1
+    p: 0.5
+
+# Normalization (ImageNet)
+normalize:
+  mean: [0.485, 0.456, 0.406]
+  std: [0.229, 0.224, 0.225]
+

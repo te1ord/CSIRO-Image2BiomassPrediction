@@ -1,0 +1,23 @@
+# DINOv2 Tiled FiLM Model Configuration
+# High-performance variant using DINOv2 backbone with FiLM modulation
+
+# Model type
+model_type: tiled_film
+
+# Backbone configuration (DINOv2 from timm)
+backbone:
+  name: vit_base_patch14_dinov2
+  pretrained: true
+
+# Head configuration
+heads:
+  dropout: 0.30
+  hidden_ratio: 0.25
+
+# Tiled model settings
+tiled:
+  grid: [2, 2]
+
+# Checkpoint
+save_path: ${checkpoint_dir}
+
