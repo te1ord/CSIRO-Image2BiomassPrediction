@@ -113,6 +113,8 @@ echo ">>> Creating ensemble folder: $ENSEMBLE_NAME"
 if [ -d "$ENSEMBLE_DIR" ]; then
     echo "❌ Error: Ensemble folder '$ENSEMBLE_NAME' already exists. Aborting to prevent overwrite."
     exit 1
+    # echo "⚠️  Warning: Ensemble folder '$ENSEMBLE_NAME' already exists, will be overwritten"
+    # rm -rf "$ENSEMBLE_DIR"
 fi
 
 mkdir -p "$ENSEMBLE_DIR"
