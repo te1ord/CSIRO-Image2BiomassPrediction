@@ -1,11 +1,18 @@
 # Two-Stream Multi-Head Model Configuration
+# Processes left/right image halves separately
 
-# Model type: 'two_stream', 'tiled', or 'tiled_film'
+# Model type options:
+# - single_stream: Full image, no tiling
+# - single_stream_tiled: Full image with tiling
+# - single_stream_tiled_film: Full image with tiling + FiLM
+# - two_stream: Left/right split, no tiling
+# - two_stream_tiled: Left/right split with tiling
+# - two_stream_tiled_film: Left/right split with tiling + FiLM
 model_type: two_stream
 
 # Backbone configuration
 backbone:
-  name: convnext_tiny  # timm model name
+  name: timm/vit_base_patch14_dinov2.lvd142m
   pretrained: true
 
 # Head configuration
@@ -13,10 +20,9 @@ heads:
   dropout: 0.30
   hidden_ratio: 0.25
 
-# Tiled model settings (only for 'tiled' and 'tiled_film' types)
+# Tiled model settings (only used for *_tiled models)
 tiled:
   grid: [2, 2]
 
 # Checkpoint
 save_path: ${checkpoint_dir}
-

@@ -18,13 +18,23 @@ stage2:
 batch_size: 8
 num_workers: 4
 
-# Mixed precision training
-use_amp: true
+# Training precision
+precision: "16-mixed"  # "32", "16-mixed", "bf16-mixed"
 
 # Optimizer
 optimizer:
   name: AdamW
   weight_decay: 0.01
+
+# Scheduler
+scheduler:
+  enabled: true
+  type: cosine  # "cosine" or "onecycle"
+
+# Early stopping (optional)
+early_stopping:
+  enabled: false
+  patience: 10
 
 # Checkpoint settings
 save_best_only: true
@@ -38,4 +48,3 @@ loss:
     total: 0.50
     gdm: 0.20
     green: 0.10
-

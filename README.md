@@ -1,14 +1,15 @@
 # CSIRO Biomass Prediction - Two-Stream Multi-Head Model
 
-A structured PyTorch implementation for the CSIRO Pasture Biomass Prediction competition.
+A structured PyTorch Lightning implementation for the CSIRO Pasture Biomass Prediction competition.
 
 ## 🎯 Key Features
 
+- **PyTorch Lightning**: Clean, modular training code with built-in best practices
+- **W&B Integration**: Track experiments, metrics, and hyperparameters
 - **Two-Stream Architecture**: Processes left/right image halves separately
 - **Multi-Head Output**: Specialized heads for each target
 - **Two-Stage Fine-Tuning**: Freeze → Unfreeze training strategy
 - **GroupKFold CV**: Prevents data leakage by grouping by Sampling_Date
-- **Weighted Loss**: Aligned with competition scoring metric
 - **TTA Support**: Test-Time Augmentation for better inference
 
 ## 📊 Methodology
@@ -46,31 +47,36 @@ img_right → backbone → features_right ─┤          → head_gdm   → GDM
 ```
 ├── configs/                    # Hydra configuration files
 │   ├── augmentation/          
-│   │   └── default.yaml       # Augmentation settings
+│   │   └── default.yaml       
 │   ├── data/
-│   │   └── default.yaml       # Data paths and settings
+│   │   └── default.yaml       
 │   ├── inference/
-│   │   └── default.yaml       # Inference settings
+│   │   └── default.yaml       
+│   ├── logging/
+│   │   └── wandb.yaml         # W&B settings
 │   ├── model/
-│   │   ├── two_stream.yaml    # ConvNeXt backbone
-│   │   └── dinov2_tiled.yaml  # DINOv2 with tiling + FiLM
+│   │   ├── two_stream.yaml    
+│   │   └── dinov2_tiled.yaml  
 │   ├── training/
-│   │   └── two_stage.yaml     # Two-stage training config
-│   └── config.yaml            # Main config
+│   │   └── two_stage.yaml     
+│   └── config.yaml            
 │
-├── src/                       # Source code
-│   ├── augmentations/         # Albumentations transforms
-│   ├── datasets/              # Two-stream dataset
-│   ├── inference/             # Predictor with TTA
-│   ├── models/                # Two-stream multi-head models
-│   ├── trainer/               # PyTorch trainer
-│   └── utils/
+├── src/
+│   ├── augmentations/         
+│   ├── datasets/              
+│   ├── inference/             
+│   ├── models/                
+│   └── trainer/
+│       ├── lightning_module.py     # LightningModule
+│       ├── lightning_datamodule.py # LightningDataModule
+│       ├── lightning_trainer.py    # Training utilities
+│       └── pytorch_trainer.py      # Legacy trainer
 │
-├── scripts/                   # Entry points
-│   ├── train.py              # Training script
-│   └── inference.py          # Inference script
+├── scripts/
+│   ├── train.py              
+│   └── inference.py          
 │
-└── data/csiro-biomass/       # Data directory
+└── data/csiro-biomass/       
 ```
 
 ## 🚀 Quick Start
@@ -85,33 +91,73 @@ poetry env activate
 
 Or with pip:
 ```bash
-pip install torch torchvision timm albumentations hydra-core omegaconf pandas scikit-learn tqdm
+pip install torch torchvision pytorch-lightning timm albumentations hydra-core wandb rich
 ```
 
-### 2. Train Model
+### 2. Login to W&B (Optional)
 
 ```bash
-# Default: ConvNeXt-Tiny backbone
+wandb login
+```
+
+### 3. Train Model
+
+```bash
+# Default: Two-stream with ConvNeXt-Tiny + W&B logging
 python scripts/train.py
 
 # DINOv2 with tiling and FiLM
 python scripts/train.py model=dinov2_tiled
 
-# Custom settings
-python scripts/train.py \
-    training.batch_size=16 \
-    data.img_size=512 \
-    training.stage1.epochs=3
+# Disable W&B logging
+python scripts/train.py logging.enabled=false
+
+# Custom experiment name
+python scripts/train.py logging.experiment_name=my_experiment
+
+# Custom W&B project
+python scripts/train.py logging.project=my-project logging.entity=my-team
 ```
 
-### 3. Run Inference
+### 4. Run Inference
 
 ```bash
-# With TTA (default)
 python scripts/inference.py
+```
 
-# Without TTA
-python scripts/inference.py inference.use_tta=false
+## 📊 W&B Logging
+
+The trainer automatically logs to Weights & Biases:
+
+### Metrics Logged
+- `train/loss` - Training loss (per step and epoch)
+- `train/loss_total`, `train/loss_gdm`, `train/loss_green` - Individual losses
+- `train/lr` - Learning rate
+- `val/loss` - Validation loss
+- `val/score` - Competition weighted R² score
+- `val/r2_total`, `val/r2_gdm`, `val/r2_green` - Individual R² scores
+- `val/r2_dead`, `val/r2_clover` - Derived target R² scores
+- `stage` - Current training stage (1=frozen, 2=fine-tuning)
+
+### Configuration
+```yaml
+# configs/logging/wandb.yaml
+enabled: true
+project: csiro-biomass
+entity: null  # Your W&B username/team
+experiment_name: ${model.model_type}_${model.backbone.name}
+```
+
+### Command Line Overrides
+```bash
+# Disable W&B
+python scripts/train.py logging.enabled=false
+
+# Change project
+python scripts/train.py logging.project=my-project
+
+# Custom experiment name
+python scripts/train.py logging.experiment_name=exp_001
 ```
 
 ## ⚙️ Configuration
@@ -127,17 +173,22 @@ python scripts/inference.py inference.use_tta=false
 
 ```yaml
 # Data
-data.img_size: 768          # Image resolution
-data.n_folds: 5             # Cross-validation folds
+data.img_size: 768          
+data.n_folds: 5             
 
 # Training
-training.stage1.epochs: 5   # Frozen backbone epochs
-training.stage2.epochs: 15  # Fine-tuning epochs
-training.batch_size: 8      # Batch size
+training.stage1.epochs: 5   
+training.stage2.epochs: 15  
+training.batch_size: 8      
+training.precision: "16-mixed"  # Mixed precision training
 
 # Model
-model.heads.dropout: 0.30   # Head dropout
+model.heads.dropout: 0.30   
 model.heads.hidden_ratio: 0.25
+
+# Logging
+logging.enabled: true
+logging.project: csiro-biomass
 ```
 
 ## 📈 Expected Results
@@ -159,36 +210,74 @@ With the two-stream ConvNeXt-Tiny model:
 python scripts/train.py model.backbone.name=efficientnet_b0
 ```
 
-### Modify Augmentations
+### Early Stopping
 
 ```bash
-python scripts/train.py \
-    augmentation.geometric.horizontal_flip.p=0.7 \
-    augmentation.color.color_jitter.enabled=false
+python scripts/train.py training.early_stopping.enabled=true training.early_stopping.patience=10
 ```
 
 ### Hyperparameter Sweep
 
 ```bash
-# Try different learning rates
 python scripts/train.py -m \
-    training.stage2.lr=1e-5,5e-6,1e-6
+    training.stage2.lr=1e-5,5e-6,1e-6 \
+    model.heads.dropout=0.2,0.3,0.4
 ```
 
-## 📝 Key Differences from Baseline
+### Train Single Fold
 
-| Aspect | Old (Lasso) | New (Two-Stream) |
-|--------|-------------|------------------|
-| Model | DINOv2 + Lasso | CNN/ViT + MLP heads |
-| Training | Sklearn | PyTorch |
-| CV | Random split | GroupKFold |
-| Targets | All 5 | 3 primary + 2 derived |
-| Augmentation | None | Flip, Rotate, ColorJitter |
-| Loss | MSE | Weighted SmoothL1 |
-| TTA | No | Yes |
+```python
+from src.trainer import train_fold
+
+result = train_fold(
+    model_fn=model_fn,
+    train_df=train_df,
+    image_dir=image_dir,
+    fold=1,
+    n_folds=5,
+    use_wandb=True,
+)
+```
+
+## 🏗️ Architecture
+
+### Lightning Module
+
+The `BiomassLightningModule` handles:
+- Two-stage training (freeze/unfreeze)
+- Loss computation with competition weights
+- R² metric calculation
+- Automatic logging
+
+### DataModule
+
+The `BiomassDataModule` handles:
+- GroupKFold splitting
+- Train/val data loading
+- Augmentation
+
+### Callbacks
+
+- `ModelCheckpoint`: Save best model by R² score
+- `LearningRateMonitor`: Log learning rate
+- `RichProgressBar`: Beautiful progress display
+- `EarlyStopping`: Optional early stopping
+
+## 📝 Key Differences from Legacy Trainer
+
+| Aspect | Legacy (`pytorch_trainer.py`) | Lightning |
+|--------|-------------------------------|-----------|
+| Training loop | Manual | Automatic |
+| Logging | Manual print | W&B + CSV |
+| Checkpointing | Manual | Automatic |
+| Mixed precision | Manual GradScaler | Built-in |
+| Progress | tqdm | Rich |
+| Multi-GPU | Not supported | Automatic |
 
 ## 📚 References
 
+- [PyTorch Lightning](https://lightning.ai/) - Training framework
+- [Weights & Biases](https://wandb.ai/) - Experiment tracking
 - [timm](https://github.com/huggingface/pytorch-image-models) - PyTorch Image Models
 - [Albumentations](https://albumentations.ai/) - Image augmentation
 - [Hydra](https://hydra.cc/) - Configuration management

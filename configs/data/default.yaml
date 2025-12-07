@@ -6,7 +6,7 @@ train_image_dir: ${data.data_root}/train
 test_image_dir: ${data.data_root}/test
 
 # Image settings
-img_size: 768  # High resolution for fine details
+img_size: 518  # High resolution for fine details
 
 # Cross-validation
 n_folds: 5

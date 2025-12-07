@@ -1,0 +1,22 @@
+# Single-Stream Multi-Head Model Configuration
+# Processes full image without left/right split
+
+model_type: single_stream
+
+# Backbone configuration
+backbone:
+  name: convnext_tiny
+  pretrained: true
+
+# Head configuration
+heads:
+  dropout: 0.30
+  hidden_ratio: 0.25
+
+# Tiled model settings (not used for basic single_stream)
+tiled:
+  grid: [2, 2]
+
+# Checkpoint
+save_path: ${checkpoint_dir}
+

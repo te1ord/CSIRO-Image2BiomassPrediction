@@ -1,10 +1,12 @@
 #!/bin/bash
 
 # Define variables
-DATA_DIR="data/kaggle_datasets/birdclef2025_code"
+DATA_DIR="data/kaggle_datasets/csiro_biomass_code"
 MAIN_FOLDER="$DATA_DIR/main_folder"
 ZIP_FILE="$DATA_DIR/main_folder.zip"
 CODE_BASE="src"
+CONFIG_BASE="configs"
+SCRIPTS_BASE="scripts"
 TOML_FILE="pyproject.toml"
 LOCK_FILE="poetry.lock"
 KAGGLE_MSG="new code version"
@@ -18,6 +20,8 @@ mkdir -p "$MAIN_FOLDER"
 
 # Copy necessary files and directories
 cp -r "$CODE_BASE" "$MAIN_FOLDER/"
+cp -r "$CONFIG_BASE" "$MAIN_FOLDER/"
+cp -r "$SCRIPTS_BASE" "$MAIN_FOLDER/"
 cp "$TOML_FILE" "$MAIN_FOLDER/"
 cp "$LOCK_FILE" "$MAIN_FOLDER/"
 

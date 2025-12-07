@@ -1,35 +1,37 @@
 """
-Training script for Two-Stream Multi-Head model
+Training script for biomass prediction models using PyTorch Lightning
+
+Supports both single-stream (full image) and two-stream (left/right split) modes.
+Includes W&B logging for experiment tracking.
 
 Usage:
+    # Default training with W&B logging
     python scripts/train.py
+    
+    # Disable W&B logging
+    python scripts/train.py logging.enabled=false
+    
+    # Single-stream model
+    python scripts/train.py model=single_stream
+    
+    # DINOv2 with tiling
     python scripts/train.py model=dinov2_tiled
-    python scripts/train.py training.batch_size=16 data.img_size=512
+    
+    # Custom experiment name
+    python scripts/train.py logging.experiment_name=my_experiment
 """
 import os
 import sys
-import torch
 import hydra
 from omegaconf import DictConfig, OmegaConf
+import pytorch_lightning as pl
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.models.two_stream import build_model
-from src.trainer.pytorch_trainer import train_kfold
+from src.models.two_stream import build_model, get_stream_mode
+from src.trainer.lightning_trainer import train_kfold
 from src.datasets.biomass_dataset import prepare_train_df
-
-
-def set_seed(seed: int):
-    """Set random seeds for reproducibility"""
-    import random
-    import numpy as np
-    
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
@@ -37,17 +39,30 @@ def main(cfg: DictConfig):
     """Main training function"""
     
     print("=" * 70)
-    print("CSIRO Biomass Prediction - Two-Stream Multi-Head Training")
+    print("CSIRO Biomass Prediction - Lightning Training")
     print("=" * 70)
     print("\nConfiguration:")
     print(OmegaConf.to_yaml(cfg))
     
     # Set seed
-    set_seed(cfg.seed)
+    pl.seed_everything(cfg.seed)
     
-    # Device
-    device = cfg.device if torch.cuda.is_available() else "cpu"
-    print(f"\nDevice: {device}")
+    # Determine stream mode from model type
+    stream_mode = get_stream_mode(cfg.model.model_type)
+    print(f"\nModel type: {cfg.model.model_type}")
+    print(f"Stream mode: {stream_mode}")
+    print(f"Backbone: {cfg.model.backbone.name}")
+    
+    # W&B settings
+    use_wandb = cfg.logging.enabled
+    print(f"\nW&B logging: {'enabled' if use_wandb else 'disabled'}")
+    if use_wandb:
+        print(f"  Project: {cfg.logging.project}")
+        print(f"  Entity: {cfg.logging.entity}")
+        print(f"  Experiment: {cfg.logging.experiment_name}")
+        print(f"  Log model: {cfg.logging.log_model}")
+        print(f"  Log gradients: {cfg.logging.log_gradients}")
+        print(f"  Log predictions: {cfg.logging.log_predictions}")
     
     # Load and prepare training data
     print("\n[1/3] Loading training data...")
@@ -56,13 +71,14 @@ def main(cfg: DictConfig):
     
     # Model factory function
     def model_fn():
+        grid = tuple(cfg.model.tiled.grid) if "tiled" in cfg.model.model_type else None
         return build_model(
             model_type=cfg.model.model_type,
             backbone_name=cfg.model.backbone.name,
             pretrained=cfg.model.backbone.pretrained,
             dropout=cfg.model.heads.dropout,
             hidden_ratio=cfg.model.heads.hidden_ratio,
-            grid=tuple(cfg.model.tiled.grid) if "tiled" in cfg.model.model_type else None,
+            grid=grid,
         )
     
     print(f"\n[2/3] Model: {cfg.model.model_type} with {cfg.model.backbone.name}")
@@ -76,19 +92,36 @@ def main(cfg: DictConfig):
         model_fn=model_fn,
         train_df=train_df,
         image_dir=cfg.data.train_image_dir,
-        n_splits=cfg.data.n_folds,
+        n_folds=cfg.data.n_folds,
+        stream_mode=stream_mode,
+        # Training settings
         img_size=cfg.data.img_size,
-        # Trainer kwargs
-        device=device,
-        freeze_epochs=cfg.training.stage1.epochs,
-        freeze_lr=cfg.training.stage1.lr,
-        unfreeze_epochs=cfg.training.stage2.epochs,
-        unfreeze_lr=cfg.training.stage2.lr,
         batch_size=cfg.training.batch_size,
         num_workers=cfg.training.num_workers,
-        use_amp=cfg.training.use_amp,
+        # Stage settings
+        freeze_epochs=cfg.training.stage1.epochs,
+        unfreeze_epochs=cfg.training.stage2.epochs,
+        freeze_lr=cfg.training.stage1.lr,
+        unfreeze_lr=cfg.training.stage2.lr,
+        # Trainer settings
+        precision=cfg.training.precision,
         checkpoint_dir=cfg.checkpoint_dir,
-        save_best_only=cfg.training.save_best_only,
+        # Logging settings
+        use_wandb=cfg.logging.enabled,
+        wandb_project=cfg.logging.project,
+        wandb_entity=cfg.logging.entity,
+        experiment_name=cfg.logging.experiment_name,
+        log_dir=cfg.logging.log_dir,
+        # W&B specific logging
+        log_model=cfg.logging.log_model,
+        log_gradients=cfg.logging.log_gradients,
+        log_predictions=cfg.logging.log_predictions,
+        # Pass full Hydra config for complete logging
+        hydra_config=cfg,
+        # Other settings
+        early_stopping=cfg.training.early_stopping.enabled,
+        patience=cfg.training.early_stopping.patience,
+        seed=cfg.seed,
     )
     
     print("\n✓ Training complete!")

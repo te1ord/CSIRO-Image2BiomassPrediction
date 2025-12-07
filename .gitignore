@@ -63,3 +63,9 @@ Thumbs.db
 
 archive
 data
+
+*checkpoints*
+wandb
+models
+outputs
+logs

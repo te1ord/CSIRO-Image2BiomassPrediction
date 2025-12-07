@@ -1,8 +1,7 @@
-# DINOv2 Tiled FiLM Model Configuration
+# DINOv2 Two-Stream Tiled FiLM Model Configuration
 # High-performance variant using DINOv2 backbone with FiLM modulation
 
-# Model type
-model_type: tiled_film
+model_type: two_stream_tiled_film
 
 # Backbone configuration (DINOv2 from timm)
 backbone:
@@ -20,4 +19,3 @@ tiled:
 
 # Checkpoint
 save_path: ${checkpoint_dir}
-

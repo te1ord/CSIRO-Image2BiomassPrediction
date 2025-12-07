@@ -1,10 +1,17 @@
 """
-Inference script for Two-Stream Multi-Head model
+Inference script for biomass prediction models
+
+Supports both single-stream (full image) and two-stream (left/right split) modes.
 
 Usage:
+    # Two-stream (default)
     python scripts/inference.py
+    
+    # Single-stream
+    python scripts/inference.py model=single_stream
+    
+    # Without TTA
     python scripts/inference.py inference.use_tta=false
-    python scripts/inference.py model=dinov2_tiled
 """
 import os
 import sys
@@ -16,7 +23,7 @@ from omegaconf import DictConfig, OmegaConf
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.models.two_stream import build_model
+from src.models.two_stream import build_model, get_stream_mode
 from src.inference.predictor import Predictor, load_fold_models
 
 
@@ -25,22 +32,28 @@ def main(cfg: DictConfig):
     """Main inference function"""
     
     print("=" * 70)
-    print("CSIRO Biomass Prediction - Two-Stream Multi-Head Inference")
+    print("CSIRO Biomass Prediction - Inference")
     print("=" * 70)
     
     # Device
     device = cfg.device if torch.cuda.is_available() else "cpu"
     print(f"\nDevice: {device}")
     
+    # Determine stream mode from model type
+    stream_mode = get_stream_mode(cfg.model.model_type)
+    print(f"Model type: {cfg.model.model_type}")
+    print(f"Stream mode: {stream_mode}")
+    
     # Model factory function
     def model_fn():
+        grid = tuple(cfg.model.tiled.grid) if "tiled" in cfg.model.model_type else None
         return build_model(
             model_type=cfg.model.model_type,
             backbone_name=cfg.model.backbone.name,
             pretrained=False,  # We load from checkpoint
             dropout=cfg.model.heads.dropout,
             hidden_ratio=cfg.model.heads.hidden_ratio,
-            grid=tuple(cfg.model.tiled.grid) if "tiled" in cfg.model.model_type else None,
+            grid=grid,
         )
     
     # Load models
@@ -48,7 +61,7 @@ def main(cfg: DictConfig):
     models = load_fold_models(
         model_fn=model_fn,
         checkpoint_dir=cfg.inference.checkpoint_dir,
-        n_folds=cfg.inference.n_folds,
+        # n_folds=cfg.inference.n_folds,
         device=device,
     )
     
@@ -61,6 +74,7 @@ def main(cfg: DictConfig):
     # Create predictor
     predictor = Predictor(
         models=models,
+        stream_mode=stream_mode,
         device=device,
         use_amp=cfg.inference.use_amp,
         use_tta=cfg.inference.use_tta,
