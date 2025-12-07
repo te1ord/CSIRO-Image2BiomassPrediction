@@ -1,14 +1,29 @@
+# # Basic usage (keeps everything local)
+# ./push_ensemble.sh ./checkpoints/exp1 my_ensemble
+
+# # Delete local checkpoints after upload
+# ./push_ensemble.sh ./checkpoints/exp1 my_ensemble --delete-local
+
+# # Clean local Kaggle directory after upload
+# ./push_ensemble.sh ./checkpoints/exp1 my_ensemble --clean-kaggle
+
+# # Both flags together
+# ./push_ensemble.sh ./checkpoints/exp1 my_ensemble --delete-local --clean-kaggle
+
 #!/usr/bin/env bash
 
 # Check if required arguments are provided
-if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
-    echo "Usage: $0 <LOCAL_CHECKPOINT_DIR> <ENSEMBLE_NAME> [--delete-local]"
-    echo "Example: $0 ./checkpoints/experiment_1 exp1_ensemble --delete-local"
+if [ "$#" -lt 2 ]; then
+    echo "Usage: $0 <LOCAL_CHECKPOINT_DIR> <ENSEMBLE_NAME> [OPTIONS]"
+    echo "Example: $0 ./checkpoints/experiment_1 exp1_ensemble --delete-local --clean-kaggle"
     echo ""
     echo "Arguments:"
     echo "  LOCAL_CHECKPOINT_DIR  - Path to folder containing best_model_fold{1-5}.ckpt files"
     echo "  ENSEMBLE_NAME        - Name for the ensemble folder in Kaggle dataset"
-    echo "  --delete-local       - Optional: delete local files after upload"
+    echo ""
+    echo "Options:"
+    echo "  --delete-local       - Delete local checkpoint files after upload"
+    echo "  --clean-kaggle       - Clean local Kaggle dataset directory after upload"
     exit 1
 fi
 
@@ -16,11 +31,25 @@ fi
 LOCAL_CHECKPOINT_DIR="$1"
 ENSEMBLE_NAME="$2"
 DELETE_LOCAL=false
+CLEAN_KAGGLE=false
 
-# Check for --delete-local flag
-if [ "$#" -eq 3 ] && [ "$3" == "--delete-local" ]; then
-    DELETE_LOCAL=true
-fi
+# Parse optional flags
+shift 2
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --delete-local)
+            DELETE_LOCAL=true
+            ;;
+        --clean-kaggle)
+            CLEAN_KAGGLE=true
+            ;;
+        *)
+            echo "❌ Error: Unknown option '$1'"
+            exit 1
+            ;;
+    esac
+    shift
+done
 
 BASE_DIR="data/kaggle_datasets"
 DATASET_NAME="csiro-image2biomassprediction-models"
@@ -43,7 +72,7 @@ N_FOLDS=5
 MISSING_FOLDS=()
 
 for fold in $(seq 1 $N_FOLDS); do
-    checkpoint_path="${LOCAL_CHECKPOINT_DIR}/best_model_fold${fold}-v2.ckpt"
+    checkpoint_path="${LOCAL_CHECKPOINT_DIR}/best_model_fold${fold}.ckpt"
     if [ ! -f "$checkpoint_path" ]; then
         MISSING_FOLDS+=("fold${fold}")
     fi
@@ -57,18 +86,24 @@ fi
 
 echo "✅ Found all 5 checkpoint files"
 
-# ─── 2) DOWNLOAD EXISTING KAGGLE DATASET ──────────────────────────────────
-echo ">>> Downloading existing Kaggle dataset"
-rm -rf "$KAGGLE_DEST_DIR"
-mkdir -p "$KAGGLE_DEST_DIR"
+# ─── 2) DOWNLOAD EXISTING KAGGLE DATASET (ONLY IF EMPTY) ─────────────────
+echo ">>> Checking local Kaggle dataset directory"
 
-kaggle datasets download \
-  -d "$KAGGLE_DATASET_NAME" \
-  -p "$KAGGLE_DEST_DIR" \
-  --unzip \
-  --force
-
-echo "✅ Downloaded existing dataset to $KAGGLE_DEST_DIR"
+# Check if main_folder exists and is empty
+if [ ! -d "$KAGGLE_DEST_DIR" ] || [ -z "$(ls -A "$KAGGLE_DEST_DIR" 2>/dev/null)" ]; then
+    echo ">>> Local Kaggle dataset is empty, downloading from Kaggle"
+    mkdir -p "$KAGGLE_DEST_DIR"
+    
+    kaggle datasets download \
+      -d "$KAGGLE_DATASET_NAME" \
+      -p "$KAGGLE_DEST_DIR" \
+      --unzip \
+      --force
+    
+    echo "✅ Downloaded existing dataset to $KAGGLE_DEST_DIR"
+else
+    echo "✅ Local Kaggle dataset already exists, skipping download"
+fi
 
 # ─── 3) CREATE ENSEMBLE FOLDER AND COPY CHECKPOINTS ───────────────────────
 ENSEMBLE_DIR="${KAGGLE_DEST_DIR}/${ENSEMBLE_NAME}"
@@ -76,8 +111,8 @@ ENSEMBLE_DIR="${KAGGLE_DEST_DIR}/${ENSEMBLE_NAME}"
 echo ">>> Creating ensemble folder: $ENSEMBLE_NAME"
 
 if [ -d "$ENSEMBLE_DIR" ]; then
-    echo "⚠️  Warning: Ensemble folder '$ENSEMBLE_NAME' already exists, will be overwritten"
-    rm -rf "$ENSEMBLE_DIR"
+    echo "❌ Error: Ensemble folder '$ENSEMBLE_NAME' already exists. Aborting to prevent overwrite."
+    exit 1
 fi
 
 mkdir -p "$ENSEMBLE_DIR"
@@ -85,9 +120,9 @@ mkdir -p "$ENSEMBLE_DIR"
 # Copy all 5 checkpoints
 echo ">>> Copying checkpoints to ensemble folder"
 for fold in $(seq 1 $N_FOLDS); do
-    checkpoint_path="${LOCAL_CHECKPOINT_DIR}/best_model_fold${fold}-v2.ckpt"
+    checkpoint_path="${LOCAL_CHECKPOINT_DIR}/best_model_fold${fold}.ckpt"
     cp "$checkpoint_path" "$ENSEMBLE_DIR/"
-    echo "  ✓ Copied best_model_fold${fold}-v2.ckpt"
+    echo "  ✓ Copied best_model_fold${fold}.ckpt"
 done
 
 # ─── 4) CREATE ENSEMBLE INFO FILE ─────────────────────────────────────────
@@ -99,7 +134,7 @@ Source Directory: ${LOCAL_CHECKPOINT_DIR}
 Upload Date: $(date '+%Y-%m-%d %H:%M:%S')
 
 Checkpoint Files:
-$(for fold in $(seq 1 $N_FOLDS); do echo "  - best_model_fold${fold}-v2.ckpt"; done)
+$(for fold in $(seq 1 $N_FOLDS); do echo "  - best_model_fold${fold}.ckpt"; done)
 EOF
 
 echo "✅ Created ensemble with $N_FOLDS checkpoints"
@@ -116,15 +151,18 @@ kaggle datasets version \
 echo "✅ Dataset uploaded to Kaggle"
 
 # ─── 6) CLEANUP ───────────────────────────────────────────────────────────
-# echo ">>> Cleaning up local Kaggle directory"
-# CLEAN_PATH="${DATASET_NAME}/${MAIN_FOLDER}"
-# rm -rf "${CLEAN_PATH:?}/"*
+if [ "$CLEAN_KAGGLE" = true ]; then
+    echo ">>> Cleaning up local Kaggle directory (--clean-kaggle flag set)"
+    CLEAN_PATH="${DATASET_NAME}/${MAIN_FOLDER}"
+    rm -rf "${CLEAN_PATH:?}/"*
+    echo "✅ Cleaned local Kaggle directory"
+fi
 
-# if [ "$DELETE_LOCAL" = true ]; then
-#     echo ">>> Deleting local checkpoint directory (--delete-local flag set)"
-#     rm -rf "${LOCAL_CHECKPOINT_DIR:?}"
-#     echo "✅ Deleted $LOCAL_CHECKPOINT_DIR"
-# fi
+if [ "$DELETE_LOCAL" = true ]; then
+    echo ">>> Deleting local checkpoint directory (--delete-local flag set)"
+    rm -rf "${LOCAL_CHECKPOINT_DIR:?}"
+    echo "✅ Deleted $LOCAL_CHECKPOINT_DIR"
+fi
 
 echo ""
 echo "════════════════════════════════════════════════════════════════"
@@ -135,9 +173,13 @@ echo "  - 5 checkpoint files (best_model_fold1.ckpt through best_model_fold5.ckp
 echo "  - ensemble_info.txt metadata file"
 echo ""
 if [ "$DELETE_LOCAL" = true ]; then
-    echo "Local checkpoint directory has been deleted"
+    echo "✓ Local checkpoint directory has been deleted"
 else
-    echo "Local checkpoint directory preserved at: $LOCAL_CHECKPOINT_DIR"
-    echo "To delete it next time, add --delete-local flag"
+    echo "✓ Local checkpoint directory preserved at: $LOCAL_CHECKPOINT_DIR"
+fi
+if [ "$CLEAN_KAGGLE" = true ]; then
+    echo "✓ Local Kaggle dataset directory has been cleaned"
+else
+    echo "✓ Local Kaggle dataset directory preserved for reuse"
 fi
 echo "════════════════════════════════════════════════════════════════"
