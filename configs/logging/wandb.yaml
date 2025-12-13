@@ -1,0 +1,20 @@
+# Weights & Biases Logging Configuration
+
+# Enable/disable W&B logging
+enabled: true
+
+# W&B project settings
+project: csiro-biomass
+entity: BashKhod  
+
+# Experiment naming
+experiment_name: ${model.model_type}_${model.backbone.name}_${exp_name}
+
+# What to log
+log_model: true  
+log_gradients: false  # debug 
+log_predictions: false  # TODO: add image logging + debug current logic as it is broken
+
+# Logging directory
+log_dir: logs
+

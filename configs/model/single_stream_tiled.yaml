@@ -1,0 +1,22 @@
+# Single-Stream Tiled Model Configuration
+# Processes full image with tiling for high-resolution details
+
+model_type: single_stream_tiled
+
+# Backbone configuration
+backbone:
+  name: vit_base_patch14_dinov2
+  pretrained: true
+
+# Head configuration
+heads:
+  dropout: 0.30
+  hidden_ratio: 0.25
+
+# Tiled model settings
+tiled:
+  grid: [2, 2]  # Split into 2x2 grid = 4 tiles
+
+# Checkpoint
+save_path: ${checkpoint_dir}
+

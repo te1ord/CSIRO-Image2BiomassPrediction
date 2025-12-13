@@ -1,167 +1,283 @@
-# CSIRO Biomass Prediction - DINOv2 + Lasso Baseline
+# CSIRO Biomass Prediction - Two-Stream Multi-Head Model
 
-This repository contains a structured baseline implementation for the CSIRO Biomass Prediction competition using DINOv2 features and Lasso regression.
+A structured PyTorch Lightning implementation for the CSIRO Pasture Biomass Prediction competition.
+
+## 🎯 Key Features
+
+- **PyTorch Lightning**: Clean, modular training code with built-in best practices
+- **W&B Integration**: Track experiments, metrics, and hyperparameters
+- **Two-Stream Architecture**: Processes left/right image halves separately
+- **Multi-Head Output**: Specialized heads for each target
+- **Two-Stage Fine-Tuning**: Freeze → Unfreeze training strategy
+- **GroupKFold CV**: Prevents data leakage by grouping by Sampling_Date
+- **TTA Support**: Test-Time Augmentation for better inference
+
+## 📊 Methodology
+
+### 1. Core Strategy
+Predict only 3 primary targets (avoiding redundancy):
+- `Dry_Total_g` (50% weight)
+- `GDM_g` (20% weight)
+- `Dry_Green_g` (10% weight)
+
+Derived targets are calculated:
+- `Dry_Dead_g = Dry_Total_g - GDM_g`
+- `Dry_Clover_g = GDM_g - Dry_Green_g`
+
+### 2. Two-Stream Processing
+- Each 2000×1000 image → two 1000×1000 patches (left/right)
+- Resize to 768×768 for high-resolution detail
+- Augmentations applied independently to each patch
+
+### 3. Model Architecture
+```
+img_left  → backbone → features_left  ─┐
+                                        ├→ concat → head_total → Dry_Total_g
+img_right → backbone → features_right ─┤          → head_gdm   → GDM_g
+                                                  → head_green → Dry_Green_g
+```
+
+### 4. Training Strategy
+- **Stage 1** (Epochs 1-5): Backbone frozen, train heads only, LR=1e-4
+- **Stage 2** (Epochs 6-20): Fine-tune entire model, LR=1e-5
+- Save checkpoint based on highest R² score
 
 ## 📁 Project Structure
 
 ```
-CSIRO-Image2BiomassPrediction/
-├── configs/                      # Hydra configuration files
-│   ├── augmentation/            # Augmentation configs
-│   │   └── none.yaml
-│   ├── data/                    # Data configs
-│   │   └── default.yaml
-│   ├── inference/               # Inference configs
-│   │   └── default.yaml
-│   ├── model/                   # Model configs
-│   │   └── dinov2_lasso.yaml
-│   ├── training/                # Training configs
-│   │   └── cross_validation.yaml
-│   └── config.yaml              # Global config
-├── data/                        # Data directory
-│   └── csiro-biomass/
-│       ├── train/
-│       ├── test/
-│       ├── train.csv
-│       └── test.csv
-├── src/                         # Source code
-│   ├── augmentations/           # Image augmentations
-│   │   └── transforms.py
-│   ├── datasets/                # Dataset classes
-│   │   └── biomass_dataset.py
-│   ├── inference/               # Inference logic
-│   │   └── predictor.py
-│   ├── models/                  # Model definitions
-│   │   └── dinov2_lasso.py
-│   ├── trainer/                 # Training logic
-│   │   └── cross_validator.py
-│   └── utils/                   # Utility functions
-│       └── embeddings.py
-├── scripts/                     # Executable scripts
-│   ├── train.py
-│   └── inference.py
-├── requirements.txt             # Python dependencies
-└── README.md                    # This file
+├── configs/                    # Hydra configuration files
+│   ├── augmentation/          
+│   │   └── default.yaml       
+│   ├── data/
+│   │   └── default.yaml       
+│   ├── inference/
+│   │   └── default.yaml       
+│   ├── logging/
+│   │   └── wandb.yaml         # W&B settings
+│   ├── model/
+│   │   ├── two_stream.yaml    
+│   │   └── dinov2_tiled.yaml  
+│   ├── training/
+│   │   └── two_stage.yaml     
+│   └── config.yaml            
+│
+├── src/
+│   ├── augmentations/         
+│   ├── datasets/              
+│   ├── inference/             
+│   ├── models/                
+│   └── trainer/
+│       ├── lightning_module.py     # LightningModule
+│       ├── lightning_datamodule.py # LightningDataModule
+│       ├── lightning_trainer.py    # Training utilities
+│       └── pytorch_trainer.py      # Legacy trainer
+│
+├── scripts/
+│   ├── train.py              
+│   └── inference.py          
+│
+└── data/csiro-biomass/       
 ```
 
-## 🚀 Setup
+## 🚀 Quick Start
 
-1. **Install dependencies:**
+### 1. Install Dependencies
+
 ```bash
 poetry config virtualenvs.in-project true
 poetry install --no-root
 poetry env activate
 ```
 
-2. **Prepare data:**
-   - Place your data in `data/csiro-biomass/`
-   - Ensure the following structure:
-     ```
-     data/csiro-biomass/
-     ├── train/
-     ├── test/
-     ├── train.csv
-     └── test.csv
-     ```
+Or with pip:
+```bash
+pip install torch torchvision pytorch-lightning timm albumentations hydra-core wandb rich
+```
 
-3. **Configure paths:**
-   - Update `configs/data/default.yaml` with correct data paths
-   - Update `configs/model/dinov2_lasso.yaml` with DINOv2 model path
-
-## 📊 Training
-
-Train the model using Hydra configuration:
+### 2. Login to W&B (Optional)
 
 ```bash
+wandb login
+```
+
+### 3. Train Model
+
+```bash
+# Default: Two-stream with ConvNeXt-Tiny + W&B logging
 python scripts/train.py
+
+# DINOv2 with tiling and FiLM
+python scripts/train.py model=dinov2_tiled
+
+# Disable W&B logging
+python scripts/train.py logging.enabled=false
+
+# Custom experiment name
+python scripts/train.py logging.experiment_name=my_experiment
+
+# Custom W&B project
+python scripts/train.py logging.project=my-project logging.entity=my-team
 ```
 
-### Custom Configuration
-
-Override config parameters from command line:
-
-```bash
-python scripts/train.py \
-    data.data_root=/path/to/data \
-    model.lasso.alpha=0.5 \
-    training.cross_validation.n_splits=10
-```
-
-Or create a new config file in `configs/` and use it:
-
-```bash
-python scripts/train.py --config-name=my_config
-```
-
-## 🔮 Inference
-
-Run inference on test set:
+### 4. Run Inference
 
 ```bash
 python scripts/inference.py
 ```
 
-This will:
-1. Load the trained model from `models/lasso_ensemble.pkl`
-2. Extract DINOv2 features from test images
-3. Generate predictions using the Lasso ensemble
-4. Save results to `submission.csv`
+## 📊 W&B Logging
 
-## 🧩 Model Architecture
+The trainer automatically logs to Weights & Biases:
 
-The baseline model consists of:
+### Metrics Logged
+- `train/loss` - Training loss (per step and epoch)
+- `train/loss_total`, `train/loss_gdm`, `train/loss_green` - Individual losses
+- `train/lr` - Learning rate
+- `val/loss` - Validation loss
+- `val/score` - Competition weighted R² score
+- `val/r2_total`, `val/r2_gdm`, `val/r2_green` - Individual R² scores
+- `val/r2_dead`, `val/r2_clover` - Derived target R² scores
+- `stage` - Current training stage (1=frozen, 2=fine-tuning)
 
-1. **Feature Extractor:** DINOv2 (pretrained vision transformer)
-2. **Regressor:** Lasso regression with 5-fold cross-validation
-3. **Ensemble:** Averages predictions from all 5 folds
+### Configuration
+```yaml
+# configs/logging/wandb.yaml
+enabled: true
+project: csiro-biomass
+entity: null  # Your W&B username/team
+experiment_name: ${model.model_type}_${model.backbone.name}
+```
 
-### Training Strategy
+### Command Line Overrides
+```bash
+# Disable W&B
+python scripts/train.py logging.enabled=false
 
-- Samples every 5th image during embedding extraction
-- 5-fold cross-validation with 80/20 train/val split
-- Separate Lasso model for each of 5 target variables:
-  - Dry_Clover_g
-  - Dry_Dead_g
-  - Dry_Green_g
-  - Dry_Total_g
-  - GDM_g
+# Change project
+python scripts/train.py logging.project=my-project
 
-## 📈 Results
+# Custom experiment name
+python scripts/train.py logging.experiment_name=exp_001
+```
 
-The baseline achieves the following average validation R² scores:
+## ⚙️ Configuration
 
-- Target 1 (Dry_Clover_g): ~0.51
-- Target 2 (Dry_Dead_g): ~0.35
-- Target 3 (Dry_Green_g): ~0.66
-- Target 4 (Dry_Total_g): ~0.53
-- Target 5 (GDM_g): ~0.63
+### Model Variants
 
-## 🔧 Configuration Management
+| Config | Backbone | Features |
+|--------|----------|----------|
+| `model=two_stream` | ConvNeXt-Tiny | Basic two-stream |
+| `model=dinov2_tiled` | DINOv2 ViT-B/14 | Tiling + FiLM modulation |
 
-This project uses [Hydra](https://hydra.cc/) for configuration management:
+### Key Parameters
 
-- **Global config:** `configs/config.yaml`
-- **Data config:** `configs/data/default.yaml`
-- **Model config:** `configs/model/dinov2_lasso.yaml`
-- **Training config:** `configs/training/cross_validation.yaml`
-- **Inference config:** `configs/inference/default.yaml`
-- **Augmentation config:** `configs/augmentation/none.yaml`
+```yaml
+# Data
+data.img_size: 768          
+data.n_folds: 5             
 
-## 🎯 Next Steps
+# Training
+training.stage1.epochs: 5   
+training.stage2.epochs: 15  
+training.batch_size: 8      
+training.precision: "16-mixed"  # Mixed precision training
 
-This baseline provides a structured foundation. Consider these improvements:
+# Model
+model.heads.dropout: 0.30   
+model.heads.hidden_ratio: 0.25
 
-1. **Augmentations:** Add data augmentation in `src/augmentations/`
-2. **Advanced Models:** Replace Lasso with XGBoost, LightGBM, or neural networks
-3. **Feature Engineering:** Add custom features or use different backbones
-4. **Ensemble Methods:** Combine multiple models
-5. **Hyperparameter Tuning:** Use Hydra's sweeper for grid search
+# Logging
+logging.enabled: true
+logging.project: csiro-biomass
+```
 
-## 📝 License
+## 📈 Expected Results
 
-This is a competition baseline implementation.
+With the two-stream ConvNeXt-Tiny model:
 
-## 🙏 Acknowledgments
+| Target | Validation R² |
+|--------|---------------|
+| Dry_Total_g | ~0.55-0.65 |
+| GDM_g | ~0.50-0.60 |
+| Dry_Green_g | ~0.60-0.70 |
+| **Weighted Score** | **~0.55-0.65** |
 
-- DINOv2 by Meta AI
-- CSIRO for the biomass dataset
+## 🔧 Advanced Usage
+
+### Custom Backbone
+
+```bash
+python scripts/train.py model.backbone.name=efficientnet_b0
+```
+
+### Early Stopping
+
+```bash
+python scripts/train.py training.early_stopping.enabled=true training.early_stopping.patience=10
+```
+
+### Hyperparameter Sweep
+
+```bash
+python scripts/train.py -m \
+    training.stage2.lr=1e-5,5e-6,1e-6 \
+    model.heads.dropout=0.2,0.3,0.4
+```
+
+### Train Single Fold
+
+```python
+from src.trainer import train_fold
+
+result = train_fold(
+    model_fn=model_fn,
+    train_df=train_df,
+    image_dir=image_dir,
+    fold=1,
+    n_folds=5,
+    use_wandb=True,
+)
+```
+
+## 🏗️ Architecture
+
+### Lightning Module
+
+The `BiomassLightningModule` handles:
+- Two-stage training (freeze/unfreeze)
+- Loss computation with competition weights
+- R² metric calculation
+- Automatic logging
+
+### DataModule
+
+The `BiomassDataModule` handles:
+- GroupKFold splitting
+- Train/val data loading
+- Augmentation
+
+### Callbacks
+
+- `ModelCheckpoint`: Save best model by R² score
+- `LearningRateMonitor`: Log learning rate
+- `RichProgressBar`: Beautiful progress display
+- `EarlyStopping`: Optional early stopping
+
+## 📝 Key Differences from Legacy Trainer
+
+| Aspect | Legacy (`pytorch_trainer.py`) | Lightning |
+|--------|-------------------------------|-----------|
+| Training loop | Manual | Automatic |
+| Logging | Manual print | W&B + CSV |
+| Checkpointing | Manual | Automatic |
+| Mixed precision | Manual GradScaler | Built-in |
+| Progress | tqdm | Rich |
+| Multi-GPU | Not supported | Automatic |
+
+## 📚 References
+
+- [PyTorch Lightning](https://lightning.ai/) - Training framework
+- [Weights & Biases](https://wandb.ai/) - Experiment tracking
+- [timm](https://github.com/huggingface/pytorch-image-models) - PyTorch Image Models
+- [Albumentations](https://albumentations.ai/) - Image augmentation
+- [Hydra](https://hydra.cc/) - Configuration management

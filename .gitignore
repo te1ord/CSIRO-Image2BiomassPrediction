@@ -47,6 +47,7 @@ data/**/*
 *.zip
 
 # Models
+models/
 *.pkl
 *.pth
 *.pt
@@ -63,3 +64,10 @@ Thumbs.db
 *.log
 
 archive
+data
+
+*checkpoints*
+wandb
+models
+outputs
+logs

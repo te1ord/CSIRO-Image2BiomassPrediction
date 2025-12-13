@@ -1,10 +1,26 @@
-# Inference configuration
-batch_size: 1
-num_workers: 0
+# Inference Configuration
+
+# Batch settings
+batch_size: 4
+num_workers: 4
+
+# Mixed precision
+use_amp: true
+
+# Test-Time Augmentation
+use_tta: true
+tta_views:
+  - original
+  - hflip
+  - vflip
+
+# Model checkpoints
+# Option 1: Single checkpoint file
+checkpoint_path: null  # e.g., "logs/exp/fold1/best_model.ckpt"
+
+# Option 2: Directory with multiple checkpoints (ensemble)
+checkpoint_dir: ${checkpoint_dir}
+checkpoint_pattern: "*.ckpt"  # glob pattern for finding checkpoints
 
 # Output
 submission_file: submission.csv
-
-# Model checkpoint
-model_checkpoint: models/lasso_ensemble.pkl
-
