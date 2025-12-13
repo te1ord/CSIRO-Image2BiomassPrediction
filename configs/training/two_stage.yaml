@@ -14,6 +14,10 @@ stage2:
 
 # Total epochs = stage1.epochs + stage2.epochs = 20
 
+# Which folds to train (null = all folds, or list like [0, 1, 2])
+# Folds are 0-indexed to match the 'fold' column in fold_assignments.csv
+folds_to_train: null
+
 # DataLoader settings
 batch_size: 8
 num_workers: 4

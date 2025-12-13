@@ -11,7 +11,7 @@ defaults:
 seed: 42
 device: cuda
 
-exp_name: fixed_glob_r2
+exp_name: our_split
 
 # Output directories
 output_dir: outputs

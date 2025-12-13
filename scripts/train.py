@@ -1,12 +1,16 @@
 """
 Training script for biomass prediction models using PyTorch Lightning
 
+Uses pre-defined fold assignments (created by scripts/data_split.py)
 Supports both single-stream (full image) and two-stream (left/right split) modes.
 Includes W&B logging for experiment tracking.
 
 Usage:
-    # Default training with W&B logging
+    # Default training with all folds
     python scripts/train.py
+    
+    # Train specific folds only
+    python scripts/train.py training.folds_to_train=[0,1]
     
     # Disable W&B logging
     python scripts/train.py logging.enabled=false
@@ -23,7 +27,7 @@ Usage:
 import os
 import sys
 import hydra
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf, ListConfig
 import pytorch_lightning as pl
 
 # Add src to path
@@ -31,7 +35,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from src.models.two_stream import build_model, get_stream_mode
 from src.trainer.lightning_trainer import train_kfold
-from src.datasets.biomass_dataset import prepare_train_df
+from src.trainer.lightning_datamodule import load_fold_assignments
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
@@ -64,10 +68,10 @@ def main(cfg: DictConfig):
         print(f"  Log gradients: {cfg.logging.log_gradients}")
         print(f"  Log predictions: {cfg.logging.log_predictions}")
     
-    # Load and prepare training data
-    print("\n[1/3] Loading training data...")
-    train_df = prepare_train_df(cfg.data.train_csv)
-    print(f"✓ Loaded {len(train_df)} training samples")
+    # Load pre-defined fold assignments
+    print("\n[1/3] Loading fold assignments...")
+    fold_df = load_fold_assignments(cfg.data.fold_assignments_csv)
+    print(f"✓ Loaded {len(fold_df)} samples with pre-defined folds")
     
     # Model factory function
     def model_fn():
@@ -83,16 +87,27 @@ def main(cfg: DictConfig):
     
     print(f"\n[2/3] Model: {cfg.model.model_type} with {cfg.model.backbone.name}")
     
+    # Determine which folds to train
+    folds_to_train = cfg.training.get("folds_to_train", None)
+    if folds_to_train is not None:
+        # Convert OmegaConf ListConfig to Python list
+        if isinstance(folds_to_train, ListConfig):
+            folds_to_train = list(folds_to_train)
+        print(f"  Training specific folds: {folds_to_train}")
+    else:
+        print(f"  Training all {cfg.data.n_folds} folds")
+    
     # Training
-    print(f"\n[3/3] Starting {cfg.data.n_folds}-fold cross-validation...")
+    print(f"\n[3/3] Starting training...")
     print(f"  Stage 1: {cfg.training.stage1.epochs} epochs (frozen), LR={cfg.training.stage1.lr}")
     print(f"  Stage 2: {cfg.training.stage2.epochs} epochs (fine-tune), LR={cfg.training.stage2.lr}")
     
     results = train_kfold(
         model_fn=model_fn,
-        train_df=train_df,
+        fold_df=fold_df,
         image_dir=cfg.data.train_image_dir,
         n_folds=cfg.data.n_folds,
+        folds_to_train=folds_to_train,
         stream_mode=stream_mode,
         # Training settings
         img_size=cfg.data.img_size,

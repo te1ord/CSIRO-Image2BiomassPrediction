@@ -1,5 +1,7 @@
 """
 Lightning Trainer utilities and K-Fold training function
+
+Uses pre-defined fold assignments (no on-the-fly splitting)
 """
 import os
 from typing import Dict, List, Callable, Optional, Any
@@ -65,6 +67,7 @@ def create_callbacks(
     
     return callbacks
 
+
 def create_loggers(
     experiment_name: str,
     fold: int,
@@ -111,7 +114,7 @@ def create_loggers(
 
 def train_fold(
     model_fn: Callable,
-    train_df: pd.DataFrame,
+    fold_df: pd.DataFrame,
     image_dir: str,
     fold: int,
     stream_mode: str = "two_stream",
@@ -151,9 +154,9 @@ def train_fold(
     
     Args:
         model_fn: Function that returns a fresh model instance
-        train_df: Training dataframe
+        fold_df: DataFrame with pre-defined 'fold' column (0-indexed)
         image_dir: Path to images
-        fold: Fold index (1-indexed)
+        fold: Fold index (0-indexed) to use as validation
         hydra_config: Full Hydra config for W&B logging
         ... other args
         
@@ -166,7 +169,7 @@ def train_fold(
     total_epochs = freeze_epochs + unfreeze_epochs
     
     print(f"\n{'#'*60}")
-    print(f"# FOLD {fold}/{n_folds}")
+    print(f"# FOLD {fold}/{n_folds - 1} (0-indexed)")
     print(f"{'#'*60}")
     
     # Create model
@@ -181,16 +184,15 @@ def train_fold(
         unfreeze_lr=unfreeze_lr,
     )
     
-    # Create data module
+    # Create data module with pre-defined folds
     data_module = BiomassDataModule(
-        train_df=train_df,
+        fold_df=fold_df,
         image_dir=image_dir,
         stream_mode=stream_mode,
         img_size=img_size,
         batch_size=batch_size,
         num_workers=num_workers,
-        n_folds=n_folds,
-        fold_idx=fold - 1,  # Convert to 0-indexed
+        fold_idx=fold,  # 0-indexed fold
     )
     
     # Prepare config for logging
@@ -279,30 +281,45 @@ def train_fold(
 
 def train_kfold(
     model_fn: Callable,
-    train_df: pd.DataFrame,
+    fold_df: pd.DataFrame,
     image_dir: str,
     n_folds: int = 5,
+    folds_to_train: Optional[List[int]] = None,
     **kwargs,
 ) -> List[Dict]:
     """
-    Train with K-Fold cross-validation.
+    Train with K-Fold cross-validation using pre-defined folds.
     
     Args:
         model_fn: Function that returns a fresh model instance
-        train_df: Training dataframe
+        fold_df: DataFrame with pre-defined 'fold' column (0-indexed)
         image_dir: Path to images
-        n_folds: Number of folds
+        n_folds: Number of folds (for display/logging)
+        folds_to_train: Optional list of fold indices to train (0-indexed).
+                       If None, trains all folds [0, 1, ..., n_folds-1]
         **kwargs: Additional arguments for train_fold
         
     Returns:
         List of fold results
     """
+    # Determine which folds to train
+    if folds_to_train is None:
+        # Get unique folds from the dataframe
+        available_folds = sorted(fold_df["fold"].unique())
+        folds_to_train = available_folds
+    
+    n_folds_actual = len(folds_to_train)
+    
+    print(f"\n{'='*60}")
+    print(f"Training {n_folds_actual} folds: {folds_to_train}")
+    print(f"{'='*60}")
+    
     results = []
     
-    for fold in range(1, n_folds + 1):
+    for fold in folds_to_train:
         fold_result = train_fold(
             model_fn=model_fn,
-            train_df=train_df,
+            fold_df=fold_df,
             image_dir=image_dir,
             fold=fold,
             n_folds=n_folds,
