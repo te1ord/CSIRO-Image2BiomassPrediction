@@ -150,7 +150,8 @@ class TestBiomassDataset(Dataset):
         
         img = cv2.imread(full_path)
         if img is None:
-            img = np.zeros((1000, 2000, 3), dtype=np.uint8)
+            # img = np.zeros((1000, 2000, 3), dtype=np.uint8)
+            raise ValueError(f"Image not found: {full_path}")
         else:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         
