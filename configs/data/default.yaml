@@ -2,17 +2,31 @@
 data_root: /home/ib/CSIRO-Image2BiomassPrediction/data/csiro-biomass
 train_csv: ${data.data_root}/train.csv
 test_csv: ${data.data_root}/test.csv
+train_image_dir: ${data.data_root}/train
+test_image_dir: ${data.data_root}/test
 
-# Dataset parameters
-sample_every_n: 5  # Sample every nth image during training
+# Image settings
+img_size: 518  # High resolution for fine details
 
-# Target mapping
-target_mapping:
-  Dry_Clover_g: 0
-  Dry_Dead_g: 1
-  Dry_Green_g: 2
-  Dry_Total_g: 3
-  GDM_g: 4
+# Cross-validation
+n_folds: 5
+group_by: Sampling_Date  # GroupKFold to prevent data leakage
 
-n_targets: 5
+# Target configuration
+# Primary targets (we predict these)
+primary_targets:
+  - Dry_Total_g
+  - GDM_g
+  - Dry_Green_g
 
+# Derived targets (calculated from predictions)
+# Dry_Dead_g = Dry_Total_g - GDM_g
+# Dry_Clover_g = GDM_g - Dry_Green_g
+
+# Competition weights
+target_weights:
+  Dry_Total_g: 0.50
+  GDM_g: 0.20
+  Dry_Green_g: 0.10
+  Dry_Dead_g: 0.10
+  Dry_Clover_g: 0.10

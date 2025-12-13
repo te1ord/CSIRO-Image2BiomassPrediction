@@ -1,92 +1,134 @@
 """
-Training script for DINOv2 + Lasso baseline
+Training script for biomass prediction models using PyTorch Lightning
+
+Supports both single-stream (full image) and two-stream (left/right split) modes.
+Includes W&B logging for experiment tracking.
+
+Usage:
+    # Default training with W&B logging
+    python scripts/train.py
+    
+    # Disable W&B logging
+    python scripts/train.py logging.enabled=false
+    
+    # Single-stream model
+    python scripts/train.py model=single_stream
+    
+    # DINOv2 with tiling
+    python scripts/train.py model=dinov2_tiled
+    
+    # Custom experiment name
+    python scripts/train.py logging.experiment_name=my_experiment
 """
 import os
 import sys
-import torch
-import pandas as pd
 import hydra
-from omegaconf import DictConfig
-from transformers import AutoImageProcessor, AutoModel
+from omegaconf import DictConfig, OmegaConf
+import pytorch_lightning as pl
 
 # Add src to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.models.dinov2_lasso import DINOv2FeatureExtractor, LassoEnsemble
-from src.trainer.cross_validator import CrossValidator
-from src.utils.embeddings import extract_train_embeddings
+from src.models.two_stream import build_model, get_stream_mode
+from src.trainer.lightning_trainer import train_kfold
+from src.datasets.biomass_dataset import prepare_train_df
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
 def main(cfg: DictConfig):
     """Main training function"""
     
-    print("=" * 80)
-    print("DINOv2 + Lasso Baseline Training")
-    print("=" * 80)
+    print("=" * 70)
+    print("CSIRO Biomass Prediction - Lightning Training")
+    print("=" * 70)
+    print("\nConfiguration:")
+    print(OmegaConf.to_yaml(cfg))
     
-    # Set device
-    device = cfg.device if torch.cuda.is_available() else 'cpu'
-    print(f"\nDevice: {device}")
+    # Set seed
+    pl.seed_everything(cfg.seed)
     
-    # Load DINOv2 model and processor
-    print("\n[1/4] Loading DINOv2 model...")
-    processor = AutoImageProcessor.from_pretrained(cfg.model.dinov2.processor_path)
-    dinov2_model = AutoModel.from_pretrained(cfg.model.dinov2.model_path)
-    dinov2_model = dinov2_model.to(device)
-    dinov2_model.eval()
-    print("✓ Model loaded successfully")
+    # Determine stream mode from model type
+    stream_mode = get_stream_mode(cfg.model.model_type)
+    print(f"\nModel type: {cfg.model.model_type}")
+    print(f"Stream mode: {stream_mode}")
+    print(f"Backbone: {cfg.model.backbone.name}")
     
-    # Load training data
-    print("\n[2/4] Loading training data...")
-    train_df = pd.read_csv(cfg.data.train_csv)
+    # W&B settings
+    use_wandb = cfg.logging.enabled
+    print(f"\nW&B logging: {'enabled' if use_wandb else 'disabled'}")
+    if use_wandb:
+        print(f"  Project: {cfg.logging.project}")
+        print(f"  Entity: {cfg.logging.entity}")
+        print(f"  Experiment: {cfg.logging.experiment_name}")
+        print(f"  Log model: {cfg.logging.log_model}")
+        print(f"  Log gradients: {cfg.logging.log_gradients}")
+        print(f"  Log predictions: {cfg.logging.log_predictions}")
+    
+    # Load and prepare training data
+    print("\n[1/3] Loading training data...")
+    train_df = prepare_train_df(cfg.data.train_csv)
     print(f"✓ Loaded {len(train_df)} training samples")
     
-    # Extract embeddings
-    print("\n[3/4] Extracting embeddings...")
-    embeds, targets = extract_train_embeddings(
+    # Model factory function
+    def model_fn():
+        grid = tuple(cfg.model.tiled.grid) if "tiled" in cfg.model.model_type else None
+        return build_model(
+            model_type=cfg.model.model_type,
+            backbone_name=cfg.model.backbone.name,
+            pretrained=cfg.model.backbone.pretrained,
+            dropout=cfg.model.heads.dropout,
+            hidden_ratio=cfg.model.heads.hidden_ratio,
+            grid=grid,
+        )
+    
+    print(f"\n[2/3] Model: {cfg.model.model_type} with {cfg.model.backbone.name}")
+    
+    # Training
+    print(f"\n[3/3] Starting {cfg.data.n_folds}-fold cross-validation...")
+    print(f"  Stage 1: {cfg.training.stage1.epochs} epochs (frozen), LR={cfg.training.stage1.lr}")
+    print(f"  Stage 2: {cfg.training.stage2.epochs} epochs (fine-tune), LR={cfg.training.stage2.lr}")
+    
+    results = train_kfold(
+        model_fn=model_fn,
         train_df=train_df,
-        root_dir=cfg.data.data_root + "/",
-        model=dinov2_model,
-        processor=processor,
-        device=device,
-        sample_every_n=cfg.data.sample_every_n
+        image_dir=cfg.data.train_image_dir,
+        n_folds=cfg.data.n_folds,
+        stream_mode=stream_mode,
+        # Training settings
+        img_size=cfg.data.img_size,
+        batch_size=cfg.training.batch_size,
+        num_workers=cfg.training.num_workers,
+        # Stage settings
+        freeze_epochs=cfg.training.stage1.epochs,
+        unfreeze_epochs=cfg.training.stage2.epochs,
+        freeze_lr=cfg.training.stage1.lr,
+        unfreeze_lr=cfg.training.stage2.lr,
+        # Trainer settings
+        precision=cfg.training.precision,
+        checkpoint_dir=cfg.checkpoint_dir,
+        # Logging settings
+        use_wandb=cfg.logging.enabled,
+        wandb_project=cfg.logging.project,
+        wandb_entity=cfg.logging.entity,
+        experiment_name=cfg.logging.experiment_name,
+        log_dir=cfg.logging.log_dir,
+        # W&B specific logging
+        log_model=cfg.logging.log_model,
+        log_gradients=cfg.logging.log_gradients,
+        log_predictions=cfg.logging.log_predictions,
+        # Pass full Hydra config for complete logging
+        hydra_config=cfg,
+        # Other settings
+        early_stopping=cfg.training.early_stopping.enabled,
+        patience=cfg.training.early_stopping.patience,
+        seed=cfg.seed,
     )
-    print(f"✓ Extracted {len(embeds)} embeddings")
-    
-    # Train Lasso ensemble with cross-validation
-    print("\n[4/4] Training Lasso ensemble with cross-validation...")
-    lasso_ensemble = LassoEnsemble(
-        n_targets=cfg.model.lasso.n_targets,
-        n_folds=cfg.model.lasso.n_folds,
-        alpha=cfg.model.lasso.alpha
-    )
-    
-    cross_validator = CrossValidator(
-        n_splits=cfg.training.cross_validation.n_splits,
-        train_ratio=cfg.training.cross_validation.train_ratio,
-        random_seed=cfg.training.cross_validation.random_seed
-    )
-    
-    results = cross_validator.train(embeds, targets, lasso_ensemble)
-    
-    # Save model
-    os.makedirs(os.path.dirname(cfg.model.save_path), exist_ok=True)
-    lasso_ensemble.save(cfg.model.save_path)
-    print(f"\n✓ Model saved to {cfg.model.save_path}")
-    
-    # Print summary
-    print("\n" + "=" * 80)
-    print("Training Summary")
-    print("=" * 80)
-    for target_name, metrics in results.items():
-        print(f"\n{target_name}:")
-        print(f"  Avg Train R²: {metrics['avg_train_r2']:.4f}")
-        print(f"  Avg Val R²: {metrics['avg_val_r2']:.4f}")
     
     print("\n✓ Training complete!")
+    print(f"Checkpoints saved to: {cfg.checkpoint_dir}")
+    
+    return results
 
 
 if __name__ == "__main__":
     main()
-

@@ -24,6 +24,7 @@ wheels/
 venv/
 ENV/
 env/
+.venv/
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -40,11 +41,13 @@ multirun/
 .hydra/
 
 # Data
-data/csiro-biomass/train/
-data/csiro-biomass/test/
+data/**/*
+!data/**/
+!data/**/dataset-metadata.json
 *.zip
 
 # Models
+models/
 *.pkl
 *.pth
 *.pt
@@ -62,3 +65,9 @@ Thumbs.db
 
 archive
 data
+
+*checkpoints*
+wandb
+models
+outputs
+logs
