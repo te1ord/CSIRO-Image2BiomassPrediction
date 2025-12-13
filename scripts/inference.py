@@ -1,17 +1,23 @@
 """
 Inference script for biomass prediction models
 
-Supports both single-stream (full image) and two-stream (left/right split) modes.
+Supports:
+- Single-stream (full image) and two-stream (left/right split) modes
+- Single model or ensemble (multiple checkpoints)
+- With or without Test-Time Augmentation (TTA)
 
 Usage:
-    # Two-stream (default)
-    python scripts/inference.py
+    # Ensemble from directory (default)
+    python scripts/inference.py inference.checkpoint_dir=logs/exp
     
-    # Single-stream
-    python scripts/inference.py model=single_stream
+    # Single model
+    python scripts/inference.py inference.checkpoint_path=logs/exp/best.ckpt
     
     # Without TTA
     python scripts/inference.py inference.use_tta=false
+    
+    # Single-stream model
+    python scripts/inference.py model=single_stream
 """
 import os
 import sys
@@ -24,7 +30,11 @@ from omegaconf import DictConfig, OmegaConf
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from src.models.two_stream import build_model, get_stream_mode
-from src.inference.predictor import Predictor, load_fold_models
+from src.inference.predictor import (
+    Predictor, 
+    load_single_model, 
+    load_models_from_dir,
+)
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
@@ -43,6 +53,7 @@ def main(cfg: DictConfig):
     stream_mode = get_stream_mode(cfg.model.model_type)
     print(f"Model type: {cfg.model.model_type}")
     print(f"Stream mode: {stream_mode}")
+    print(f"TTA: {cfg.inference.use_tta}")
     
     # Model factory function
     def model_fn():
@@ -56,14 +67,35 @@ def main(cfg: DictConfig):
             grid=grid,
         )
     
-    # Load models
-    print(f"\n[1/4] Loading {cfg.inference.n_folds} fold models...")
-    models = load_fold_models(
-        model_fn=model_fn,
-        checkpoint_dir=cfg.inference.checkpoint_dir,
-        # n_folds=cfg.inference.n_folds,
-        device=device,
-    )
+    # Load model(s)
+    print(f"\n[1/4] Loading model(s)...")
+    
+    # Check if single checkpoint or directory
+    checkpoint_path = cfg.inference.get("checkpoint_path", None)
+    
+    if checkpoint_path:
+        # Single model mode
+        print(f"Mode: Single model")
+        model = load_single_model(
+            model_fn=model_fn,
+            checkpoint_path=checkpoint_path,
+            device=device,
+        )
+        models = [model]
+    else:
+        # Ensemble mode - load from directory
+        print(f"Mode: Ensemble from directory")
+        checkpoint_dir = cfg.inference.checkpoint_dir
+        pattern = cfg.inference.get("checkpoint_pattern", "*.ckpt")
+        
+        models = load_models_from_dir(
+            model_fn=model_fn,
+            checkpoint_dir=checkpoint_dir,
+            device=device,
+            pattern=pattern,
+        )
+    
+    print(f"Using {len(models)} model(s) for inference")
     
     # Load test data
     print(f"\n[2/4] Loading test data...")

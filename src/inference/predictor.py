@@ -232,25 +232,82 @@ class Predictor:
         return submission
 
 
-def load_fold_models(
+def _load_checkpoint_state_dict(checkpoint_path: str, device: str = "cuda") -> dict:
+    """
+    Load state_dict from a checkpoint file, handling both Lightning and raw formats.
+    
+    Args:
+        checkpoint_path: Path to checkpoint file
+        device: Device to load on
+        
+    Returns:
+        Model state_dict
+    """
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    
+    # Handle Lightning checkpoints
+    if "state_dict" in checkpoint:
+        state_dict = {
+            k.replace("model.", "", 1): v
+            for k, v in checkpoint["state_dict"].items()
+            if k.startswith("model.")
+        }
+    else:
+        # Raw torch checkpoint
+        state_dict = checkpoint
+    
+    return state_dict
+
+
+def load_single_model(
+    model_fn,
+    checkpoint_path: str,
+    device: str = "cuda",
+) -> nn.Module:
+    """
+    Load a single model from a checkpoint file.
+    
+    Args:
+        model_fn: Function returning a fresh model instance
+        checkpoint_path: Path to checkpoint file
+        device: Device to place model on
+        
+    Returns:
+        Loaded model
+    """
+    if not os.path.exists(checkpoint_path):
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+    
+    print(f"→ Loading: {checkpoint_path}")
+    
+    model = model_fn()
+    state_dict = _load_checkpoint_state_dict(checkpoint_path, device)
+    model.load_state_dict(state_dict, strict=False)
+    model.to(device)
+    model.eval()
+    
+    print(f"✓ Loaded model successfully")
+    return model
+
+
+def load_models_from_dir(
     model_fn,
     checkpoint_dir: str,
     device: str = "cuda",
     pattern: str = "*.ckpt",
 ) -> List[nn.Module]:
     """
-    Load ALL model checkpoints inside a directory, without requiring fixed naming.
+    Load ALL model checkpoints from a directory (ensemble).
 
     Args:
-        model_fn: function returning a fresh model instance
-        checkpoint_dir: folder with checkpoint files
-        device: device to place models on
-        pattern: glob pattern to discover checkpoints (default: *.ckpt)
+        model_fn: Function returning a fresh model instance
+        checkpoint_dir: Folder with checkpoint files
+        device: Device to place models on
+        pattern: Glob pattern to discover checkpoints (default: *.ckpt)
 
     Returns:
-        List[nn.Module] — loaded models
+        List of loaded models
     """
-
     # Find all checkpoint files
     checkpoint_paths = sorted(glob.glob(os.path.join(checkpoint_dir, pattern)))
 
@@ -265,19 +322,7 @@ def load_fold_models(
         print(f"→ Loading: {os.path.basename(ckpt_path)}")
 
         model = model_fn()
-        checkpoint = torch.load(ckpt_path, map_location=device)
-
-        # Handle Lightning checkpoints
-        if "state_dict" in checkpoint:
-            state_dict = {
-                k.replace("model.", "", 1): v
-                for k, v in checkpoint["state_dict"].items()
-                if k.startswith("model.")
-            }
-        else:
-            # Raw torch checkpoint
-            state_dict = checkpoint
-
+        state_dict = _load_checkpoint_state_dict(ckpt_path, device)
         model.load_state_dict(state_dict, strict=False)
         model.to(device)
         model.eval()
@@ -288,54 +333,5 @@ def load_fold_models(
     return models
 
 
-# def load_fold_models(
-#     model_fn,
-#     checkpoint_dir: str,
-#     n_folds: int = 5,
-#     device: str = "cuda",
-# ) -> List[nn.Module]:
-#     """
-#     Load trained models from checkpoints.
-    
-#     Args:
-#         model_fn: Function that returns a fresh model instance
-#         checkpoint_dir: Directory containing checkpoint files
-#         n_folds: Number of folds
-#         device: Device to load models on
-        
-#     Returns:
-#         List of loaded models
-#     """
-#     models = []
-    
-#     for fold in range(1, n_folds + 1):
-#         checkpoint_path = os.path.join(checkpoint_dir, f"best_model_fold{fold}-v2.ckpt")
-        
-#         if not os.path.exists(checkpoint_path):
-#             raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
-        
-#         model = model_fn()
-#         checkpoint = torch.load(checkpoint_path, map_location=device)
-        
-#         # Handle PyTorch Lightning checkpoint format
-#         if "state_dict" in checkpoint:
-#             # Lightning wraps model in LightningModule, so keys have "model." prefix
-#             state_dict = checkpoint["state_dict"]
-#             # Remove "model." prefix from keys
-#             state_dict = {
-#                 k.replace("model.", "", 1): v 
-#                 for k, v in state_dict.items() 
-#                 if k.startswith("model.")
-#             }
-#         else:
-#             # Raw state_dict
-#             state_dict = checkpoint
-        
-#         model.load_state_dict(state_dict)
-#         model.to(device)
-#         model.eval()
-        
-#         print(f"✓ Loaded fold {fold} from {checkpoint_path}")
-#         models.append(model)
-    
-#     return models
+# Alias for backwards compatibility
+load_fold_models = load_models_from_dir

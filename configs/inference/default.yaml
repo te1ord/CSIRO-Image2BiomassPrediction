@@ -14,9 +14,13 @@ tta_views:
   - hflip
   - vflip
 
-# Model checkpoint directory
+# Model checkpoints
+# Option 1: Single checkpoint file
+checkpoint_path: null  # e.g., "logs/exp/fold1/best_model.ckpt"
+
+# Option 2: Directory with multiple checkpoints (ensemble)
 checkpoint_dir: ${checkpoint_dir}
-n_folds: 5
+checkpoint_pattern: "*.ckpt"  # glob pattern for finding checkpoints
 
 # Output
 submission_file: submission.csv
