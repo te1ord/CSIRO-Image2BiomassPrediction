@@ -243,7 +243,8 @@ def _load_checkpoint_state_dict(checkpoint_path: str, device: str = "cuda") -> d
     Returns:
         Model state_dict
     """
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    # weights_only=False needed for PyTorch 2.6+ (checkpoints contain numpy scalars)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     
     # Handle Lightning checkpoints
     if "state_dict" in checkpoint:
