@@ -1,0 +1,54 @@
+# Two-Stage Fine-Tuning Training Configuration
+# Stage 1: Freeze backbone, train heads only
+# Stage 2: Unfreeze and fine-tune entire model
+
+# Stage 1: Frozen backbone
+stage1:
+  epochs: 20
+  lr: 1.0e-4
+
+# Stage 2: Fine-tuning
+stage2:
+  epochs: 0
+  lr: 1.0e-5
+
+# Total epochs = stage1.epochs + stage2.epochs = 20
+
+# Which folds to train (null = all folds, or list like [0, 1, 2])
+# Folds are 0-indexed to match the 'fold' column in fold_assignments.csv
+folds_to_train: null
+
+# DataLoader settings
+batch_size: 8
+num_workers: 4
+
+# Training precision
+precision: "16-mixed"  # "32", "16-mixed", "bf16-mixed"
+
+# Optimizer
+optimizer:
+  name: AdamW
+  weight_decay: 0.01
+
+# Scheduler
+scheduler:
+  enabled: true
+  type: cosine  # "cosine" or "onecycle"
+
+# Early stopping (optional)
+early_stopping:
+  enabled: true
+  patience: 5
+
+# Checkpoint settings
+save_best_only: true
+metric: score  # Save based on R² score, not loss
+
+# Loss configuration
+loss:
+  type: SmoothL1
+  beta: 1.0
+  weights:
+    total: 0.50
+    gdm: 0.20
+    green: 0.10
