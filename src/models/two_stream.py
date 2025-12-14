@@ -104,10 +104,96 @@ class BaseMultiHead(nn.Module):
         for param in self.backbone.parameters():
             param.requires_grad = False
             
-    def unfreeze_backbone(self):
-        """Unfreeze backbone parameters (Stage 2 fine-tuning)"""
+    def unfreeze_backbone(self, n_blocks: Optional[int] = None):
+        """
+        Unfreeze backbone parameters (Stage 2 fine-tuning).
+        
+        Args:
+            n_blocks: If None, unfreeze entire backbone.
+                     If int, unfreeze only the last N blocks/stages.
+                     The norm layer and head-related layers are always unfrozen.
+        """
+        if n_blocks is None:
+            # Unfreeze everything
+            for param in self.backbone.parameters():
+                param.requires_grad = True
+            return
+        
+        # First, keep everything frozen
         for param in self.backbone.parameters():
-            param.requires_grad = True
+            param.requires_grad = False
+        
+        # Determine backbone type and get blocks
+        blocks = self._get_backbone_blocks()
+        
+        if blocks is None:
+            # Fallback: unfreeze everything if we can't identify blocks
+            print("Warning: Could not identify backbone blocks, unfreezing entire backbone")
+            for param in self.backbone.parameters():
+                param.requires_grad = True
+            return
+        
+        # Unfreeze last n_blocks
+        total_blocks = len(blocks)
+        n_to_unfreeze = min(n_blocks, total_blocks)
+        
+        for block in blocks[-n_to_unfreeze:]:
+            for param in block.parameters():
+                param.requires_grad = True
+        
+        # Always unfreeze normalization layer (if exists)
+        if hasattr(self.backbone, "norm"):
+            for param in self.backbone.norm.parameters():
+                param.requires_grad = True
+        if hasattr(self.backbone, "head_norm"):
+            for param in self.backbone.head_norm.parameters():
+                param.requires_grad = True
+        if hasattr(self.backbone, "fc_norm"):
+            for param in self.backbone.fc_norm.parameters():
+                param.requires_grad = True
+                
+        # Count trainable params
+        trainable = sum(p.numel() for p in self.backbone.parameters() if p.requires_grad)
+        total = sum(p.numel() for p in self.backbone.parameters())
+        print(f"Partial unfreeze: {n_to_unfreeze}/{total_blocks} blocks, "
+              f"{trainable:,}/{total:,} params ({100*trainable/total:.1f}%)")
+    
+    def _get_backbone_blocks(self) -> Optional[nn.ModuleList]:
+        """
+        Get the sequential blocks/stages from the backbone.
+        
+        Supports:
+        - ViT/DINOv2: backbone.blocks
+        - ConvNeXT: backbone.stages
+        - ResNet: backbone.layer1-4
+        - EfficientNet: backbone.blocks
+        """
+        # ViT, DINOv2, Swin
+        if hasattr(self.backbone, "blocks"):
+            return list(self.backbone.blocks)
+        
+        # ConvNeXT
+        if hasattr(self.backbone, "stages"):
+            return list(self.backbone.stages)
+        
+        # ResNet
+        if hasattr(self.backbone, "layer4"):
+            layers = []
+            for name in ["layer1", "layer2", "layer3", "layer4"]:
+                if hasattr(self.backbone, name):
+                    layers.append(getattr(self.backbone, name))
+            return layers
+        
+        # EfficientNet (timm)
+        if hasattr(self.backbone, "blocks"):
+            return list(self.backbone.blocks)
+        
+        return None
+    
+    def get_num_backbone_blocks(self) -> int:
+        """Get the number of blocks in the backbone"""
+        blocks = self._get_backbone_blocks()
+        return len(blocks) if blocks else 0
     
     def _predict_from_features(self, features: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Predict targets from combined features"""

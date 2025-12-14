@@ -33,6 +33,7 @@ class BiomassLightningModule(pl.LightningModule):
         freeze_lr: float = 1e-4,
         # Stage 2 settings  
         unfreeze_lr: float = 1e-5,
+        unfreeze_n_blocks: Optional[int] = None,  # None = unfreeze all, int = last N blocks
         # Optimizer settings
         weight_decay: float = 0.01,
         # Scheduler settings
@@ -48,6 +49,7 @@ class BiomassLightningModule(pl.LightningModule):
         self.freeze_epochs = freeze_epochs
         self.freeze_lr = freeze_lr
         self.unfreeze_lr = unfreeze_lr
+        self.unfreeze_n_blocks = unfreeze_n_blocks
         self.weight_decay = weight_decay
         self.use_scheduler = use_scheduler
         self.scheduler_type = scheduler_type
@@ -61,6 +63,11 @@ class BiomassLightningModule(pl.LightningModule):
         
         # Validation predictions for epoch-end metric calculation
         self.validation_step_outputs = []
+        
+        # Log backbone info
+        if hasattr(model, 'get_num_backbone_blocks'):
+            n_blocks = model.get_num_backbone_blocks()
+            print(f"Backbone has {n_blocks} blocks/stages")
         
     def forward(self, *args):
         """Forward pass through the model"""
@@ -92,10 +99,17 @@ class BiomassLightningModule(pl.LightningModule):
             self.model.freeze_backbone()
             self._current_stage = 1
             self.log("stage", 1, prog_bar=True)
+            print(f"\n=== Stage 1: Backbone frozen, training heads only ===")
             
         elif current_epoch == self.freeze_epochs + 1:
-            # Stage 2: Unfreeze backbone
-            self.model.unfreeze_backbone()
+            # Stage 2: Unfreeze backbone (full or partial)
+            if self.unfreeze_n_blocks is not None:
+                print(f"\n=== Stage 2: Unfreezing last {self.unfreeze_n_blocks} backbone blocks ===")
+                self.model.unfreeze_backbone(n_blocks=self.unfreeze_n_blocks)
+            else:
+                print(f"\n=== Stage 2: Unfreezing entire backbone ===")
+                self.model.unfreeze_backbone()
+            
             self._current_stage = 2
             self.log("stage", 2, prog_bar=True)
             

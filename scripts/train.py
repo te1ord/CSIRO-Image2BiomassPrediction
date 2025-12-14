@@ -98,9 +98,12 @@ def main(cfg: DictConfig):
         print(f"  Training all {cfg.data.n_folds} folds")
     
     # Training
+    unfreeze_n_blocks = cfg.training.stage2.get("unfreeze_n_blocks", None)
+    
     print(f"\n[3/3] Starting training...")
     print(f"  Stage 1: {cfg.training.stage1.epochs} epochs (frozen), LR={cfg.training.stage1.lr}")
-    print(f"  Stage 2: {cfg.training.stage2.epochs} epochs (fine-tune), LR={cfg.training.stage2.lr}")
+    unfreeze_desc = f"last {unfreeze_n_blocks} blocks" if unfreeze_n_blocks else "full backbone"
+    print(f"  Stage 2: {cfg.training.stage2.epochs} epochs ({unfreeze_desc}), LR={cfg.training.stage2.lr}")
     
     results = train_kfold(
         model_fn=model_fn,
@@ -118,6 +121,7 @@ def main(cfg: DictConfig):
         unfreeze_epochs=cfg.training.stage2.epochs,
         freeze_lr=cfg.training.stage1.lr,
         unfreeze_lr=cfg.training.stage2.lr,
+        unfreeze_n_blocks=unfreeze_n_blocks,
         # Trainer settings
         precision=cfg.training.precision,
         checkpoint_dir=cfg.checkpoint_dir,

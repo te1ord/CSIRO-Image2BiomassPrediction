@@ -1,0 +1,23 @@
+defaults:
+  - data: default
+  - model: two_stream_tiled
+  - training: two_stage_lower_bs_partial_unfreeze
+  - inference: default
+  - augmentation: default
+  - logging: wandb
+  - _self_
+
+# Global settings
+seed: 42
+device: cuda
+
+exp_name: our_split_unfreeze_1_block
+
+# Output directories
+output_dir: outputs
+checkpoint_dir: checkpoints/${logging.experiment_name}
+
+# Hydra configuration
+hydra:
+  run:
+    dir: ${output_dir}/${now:%Y-%m-%d_%H-%M-%S}

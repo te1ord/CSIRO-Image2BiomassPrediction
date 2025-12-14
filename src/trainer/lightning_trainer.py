@@ -128,6 +128,7 @@ def train_fold(
     unfreeze_epochs: int = 15,
     freeze_lr: float = 1e-4,
     unfreeze_lr: float = 1e-5,
+    unfreeze_n_blocks: Optional[int] = None,  # None = all, int = last N blocks
     # Trainer settings
     accelerator: str = "auto",
     precision: str = "16-mixed",
@@ -182,6 +183,7 @@ def train_fold(
         freeze_epochs=freeze_epochs,
         freeze_lr=freeze_lr,
         unfreeze_lr=unfreeze_lr,
+        unfreeze_n_blocks=unfreeze_n_blocks,
     )
     
     # Create data module with pre-defined folds
