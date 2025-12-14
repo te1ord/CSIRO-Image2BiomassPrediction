@@ -5,7 +5,7 @@ model_type: single_stream
 
 # Backbone configuration
 backbone:
-  name: convnext_tiny
+  name: timm/vit_base_patch14_dinov2.lvd142m #convnext_tiny
   pretrained: true
 
 # Head configuration

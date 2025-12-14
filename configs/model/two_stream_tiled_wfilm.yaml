@@ -1,0 +1,29 @@
+# DINOv2 Two-Stream Tiled FiLM Model Configuration
+# High-performance variant using DINOv2 backbone with FiLM modulation
+
+# Model type options:
+# - single_stream: Full image, no tiling
+# - single_stream_tiled: Full image with tiling
+# - single_stream_tiled_film: Full image with tiling + FiLM
+# - two_stream: Left/right split, no tiling
+# - two_stream_tiled: Left/right split with tiling
+# - two_stream_tiled_film: Left/right split with tiling + FiLM
+
+model_type: two_stream_tiled_film
+
+# Backbone configuration (DINOv2 from timm)
+backbone:
+  name: timm/vit_base_patch14_dinov2.lvd142m #vit_base_patch14_dinov2
+  pretrained: true
+
+# Head configuration
+heads:
+  dropout: 0.30
+  hidden_ratio: 0.25
+
+# Tiled model settings
+tiled:
+  grid: [2, 2]
+
+# Checkpoint
+save_path: ${checkpoint_dir}
