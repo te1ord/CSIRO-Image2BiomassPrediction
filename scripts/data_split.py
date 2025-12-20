@@ -30,6 +30,39 @@ def get_month(date: str) -> int:
     return int(date.split("/")[1])
 
 
+def discretize_target(
+    values: pd.Series,
+    n_bins: int = 5,
+    strategy: str = 'quantile'
+) -> pd.Series:
+    """
+    Discretize a continuous target variable into bins for stratification.
+    
+    Args:
+        values: Series of continuous target values
+        n_bins: Number of bins to create
+        strategy: 'quantile' for equal-frequency bins, 'uniform' for equal-width bins
+    
+    Returns:
+        Series of bin labels (integers 0 to n_bins-1)
+    """
+    if strategy == 'quantile':
+        # Equal-frequency binning (each bin has roughly same number of samples)
+        try:
+            bins = pd.qcut(values, q=n_bins, labels=False, duplicates='drop')
+        except ValueError:
+            # If too few unique values, fall back to fewer bins
+            n_unique = values.nunique()
+            bins = pd.qcut(values, q=min(n_bins, n_unique), labels=False, duplicates='drop')
+    elif strategy == 'uniform':
+        # Equal-width binning
+        bins = pd.cut(values, bins=n_bins, labels=False)
+    else:
+        raise ValueError(f"Unknown strategy: {strategy}. Use 'quantile' or 'uniform'.")
+    
+    return bins
+
+
 
 
 def create_folds(
@@ -37,7 +70,11 @@ def create_folds(
     n_splits: int = 5,
     random_state: int = 42,
     group_col: str = 'Sampling_Date',
-    stratify_cols: list = None
+    target_col: str = 'Dry_Total_g',
+    n_target_bins: int = 5,
+    bin_strategy: str = 'quantile',
+    stratify_cols: list = None,
+    no_stratify: bool = False
 ) -> pd.DataFrame:
     """
     Create K-fold splits with date-based grouping and optional stratification.
@@ -47,7 +84,12 @@ def create_folds(
         n_splits: Number of folds
         random_state: Random seed for reproducibility
         group_col: Column to group by (prevents data leakage)
-        stratify_cols: Columns to stratify by (maintains balance). If None, no stratification is performed.
+        target_col: Regression target column to discretize for stratification
+        n_target_bins: Number of bins to discretize the target into
+        bin_strategy: 'quantile' for equal-frequency, 'uniform' for equal-width bins
+        stratify_cols: Additional columns to stratify by (e.g., State, Species). 
+                       These are combined with the discretized target.
+        no_stratify: If True, use simple GroupKFold without any stratification
     
     Returns:
         DataFrame with 'fold' column added
@@ -62,11 +104,10 @@ def create_folds(
     if 'Sampling_Date_parsed' not in df.columns:
         df['Sampling_Date_parsed'] = pd.to_datetime(df['Sampling_Date'])
     
-    # Create fold assignments based on whether stratification is requested
-    if stratify_cols is None:
-        print(f"Stratify by: None (no stratification)")
+    if no_stratify:
+        # Simple GroupKFold without stratification
+        print("Stratification: DISABLED (using simple GroupKFold)")
         
-        # Use GroupKFold (no stratification)
         gkf = GroupKFold(n_splits=n_splits)
         
         df['fold'] = -1
@@ -75,18 +116,46 @@ def create_folds(
         ):
             df.loc[val_idx, 'fold'] = fold_idx
     else:
-        print(f"Stratify by: {stratify_cols} (maintains balance)")
+        # StratifiedGroupKFold with discretized target
+        print(f"Discretizing target '{target_col}' into {n_target_bins} bins (strategy: {bin_strategy})")
+        df['target_bin'] = discretize_target(
+            df[target_col], 
+            n_bins=n_target_bins, 
+            strategy=bin_strategy
+        )
         
-        # Add Season column if needed for stratification
-        if 'Season' in stratify_cols and 'Season' not in df.columns:
-            df['Month'] = df['Sampling_Date'].apply(get_month)
-            df['Season'] = df['Month'].apply(get_season)
+        # Print target bin distribution
+        bin_counts = df['target_bin'].value_counts().sort_index()
+        print(f"Target bin distribution:")
+        for bin_idx, count in bin_counts.items():
+            bin_mask = df['target_bin'] == bin_idx
+            bin_min = df.loc[bin_mask, target_col].min()
+            bin_max = df.loc[bin_mask, target_col].max()
+            print(f"  Bin {bin_idx}: {count:3d} samples ({bin_min:.1f}g - {bin_max:.1f}g)")
         
-        # Create stratification key by combining stratify columns
-        df['stratify_key'] = df[stratify_cols[0]].astype(str)
-        if len(stratify_cols) > 1:
-            for col in stratify_cols[1:]:
+        # Build stratification key starting with discretized target
+        df['stratify_key'] = df['target_bin'].astype(str)
+        stratify_components = [f'{target_col}_binned']
+        
+        # Add additional stratification columns if provided
+        if stratify_cols is not None:
+            print(f"Additional stratification by: {stratify_cols}")
+            
+            # Add Season column if needed for stratification
+            if 'Season' in stratify_cols and 'Season' not in df.columns:
+                df['Month'] = df['Sampling_Date'].apply(get_month)
+                df['Season'] = df['Month'].apply(get_season)
+            
+            for col in stratify_cols:
                 df['stratify_key'] += '_' + df[col].astype(str)
+                stratify_components.append(col)
+        
+        print(f"Stratify key components: {stratify_components}")
+        
+        # Check number of unique stratify keys vs groups
+        n_unique_keys = df['stratify_key'].nunique()
+        n_groups = df[group_col].nunique()
+        print(f"Unique stratify keys: {n_unique_keys}, Groups: {n_groups}")
         
         # Use StratifiedGroupKFold
         sgkf = StratifiedGroupKFold(
@@ -106,13 +175,14 @@ def create_folds(
     return df
 
 
-def verify_splits(df: pd.DataFrame, group_col: str = 'Sampling_Date') -> dict:
+def verify_splits(df: pd.DataFrame, group_col: str = 'Sampling_Date', target_col: str = 'Dry_Total_g') -> dict:
     """
     Verify that splits have no data leakage and are balanced.
     
     Args:
         df: DataFrame with 'fold' column
         group_col: Column that was used for grouping
+        target_col: Regression target column
     
     Returns:
         Dictionary with verification results
@@ -137,6 +207,18 @@ def verify_splits(df: pd.DataFrame, group_col: str = 'Sampling_Date') -> dict:
     dates_per_fold = df.groupby('fold')[group_col].nunique()
     print(dates_per_fold)
     results['dates_per_fold'] = dates_per_fold.to_dict()
+    
+    # Target distribution across folds (key for regression stratification)
+    print(f"\n{target_col} statistics per fold:")
+    target_stats = df.groupby('fold')[target_col].agg(['mean', 'std', 'min', 'max', 'median'])
+    print(target_stats.round(2))
+    results['target_stats'] = target_stats.to_dict()
+    
+    # Target bin distribution across folds
+    if 'target_bin' in df.columns:
+        print(f"\nTarget bin distribution across folds:")
+        bin_dist = pd.crosstab(df['target_bin'], df['fold'], margins=True)
+        print(bin_dist)
     
     # State distribution across folds
     print(f"\nState distribution across folds:")
@@ -245,7 +327,9 @@ def organize_images_into_folds(
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Create K-fold splits with no data leakage and organize images into fold directories (optional stratification)'
+        description='Create K-fold splits with no data leakage (groups by date). '
+                    'By default, uses StratifiedGroupKFold with discretized regression target (Dry_Total_g) '
+                    'to ensure balanced target distribution. Use --no-stratify for simple GroupKFold.'
     )
     parser.add_argument(
         '--input',
@@ -284,11 +368,36 @@ def main():
         help='Column to group by to prevent data leakage (default: Sampling_Date)'
     )
     parser.add_argument(
+        '--target-col',
+        type=str,
+        default='Dry_Total_g',
+        help='Regression target column to discretize for stratification (default: Dry_Total_g)'
+    )
+    parser.add_argument(
+        '--n-target-bins',
+        type=int,
+        default=5,
+        help='Number of bins to discretize the target into (default: 5)'
+    )
+    parser.add_argument(
+        '--bin-strategy',
+        type=str,
+        choices=['quantile', 'uniform'],
+        default='quantile',
+        help='Binning strategy: quantile (equal-frequency) or uniform (equal-width) (default: quantile)'
+    )
+    parser.add_argument(
         '--stratify-cols',
         type=str,
         nargs='+',
         default=None,
-        help='Columns to stratify by for balance (default: None - no stratification). Example: --stratify-cols State Species'
+        help='Additional columns to stratify by (combined with target bins). Example: --stratify-cols State Species'
+    )
+    parser.add_argument(
+        '--no-stratify',
+        action='store_true',
+        default=False,
+        help='Disable stratification entirely; use simple GroupKFold (group by date only)'
     )
     parser.add_argument(
         '--use-symlinks',
@@ -323,11 +432,19 @@ def main():
         n_splits=args.n_splits,
         random_state=args.random_state,
         group_col=args.group_col,
-        stratify_cols=args.stratify_cols
+        target_col=args.target_col,
+        n_target_bins=args.n_target_bins,
+        bin_strategy=args.bin_strategy,
+        stratify_cols=args.stratify_cols,
+        no_stratify=args.no_stratify
     )
     
     # Verify splits
-    verification_results = verify_splits(train_with_folds, group_col=args.group_col)
+    verification_results = verify_splits(
+        train_with_folds, 
+        group_col=args.group_col,
+        target_col=args.target_col
+    )
     
     # Organize images into fold directories
     organize_images_into_folds(
@@ -341,4 +458,17 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# # Default: StratifiedGroupKFold with discretized Dry_Total_g (5 quantile bins)
+# python data_split.py
+
+# # Simple GroupKFold - just group by date, no stratification
+# python data_split.py --no-stratify
+
+# # StratifiedGroupKFold with more bins
+# python data_split.py --n-target-bins 10
+
+# # StratifiedGroupKFold + additional stratification by State/Species
+# python data_split.py --stratify-cols State Species    
 
