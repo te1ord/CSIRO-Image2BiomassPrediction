@@ -1,6 +1,6 @@
 defaults:
   - data: default
-  - model: two_stream_tiled_dinov2large
+  - model: two_stream_tiled_dinov3large
   - training: mlps_only
   - inference: default
   - augmentation: default

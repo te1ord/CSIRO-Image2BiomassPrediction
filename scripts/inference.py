@@ -56,6 +56,8 @@ def main(cfg: DictConfig):
     print(f"TTA: {cfg.inference.use_tta}")
     
     # Model factory function
+    tile_size = cfg.data.get("tile_size", None)
+    
     def model_fn():
         grid = tuple(cfg.model.tiled.grid) if "tiled" in cfg.model.model_type else None
         return build_model(
@@ -65,6 +67,7 @@ def main(cfg: DictConfig):
             dropout=cfg.model.heads.dropout,
             hidden_ratio=cfg.model.heads.hidden_ratio,
             grid=grid,
+            tile_size=tile_size,
         )
     
     # Load model(s)

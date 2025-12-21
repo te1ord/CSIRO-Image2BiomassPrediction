@@ -45,6 +45,7 @@ class BaseMultiHead(nn.Module):
         dropout: float = 0.3,
         hidden_ratio: float = 0.25,
         feature_multiplier: int = 1,  # 1 for single-stream, 2 for two-stream
+        tile_size: Optional[int] = None,  # Resolution to resize tiles to (None = infer from backbone)
     ):
         super().__init__()
         
@@ -59,8 +60,12 @@ class BaseMultiHead(nn.Module):
         self.feat_dim = self.backbone.num_features
         self.combined_dim = self.feat_dim * feature_multiplier
         
-        # Input resolution
-        self.input_res = self._infer_input_res()
+        # Input resolution: use config tile_size if provided, otherwise infer from backbone
+        if tile_size is not None:
+            self.input_res = tile_size
+        else:
+            self.input_res = self._infer_input_res()
+        print(f"Model input_res (tile size): {self.input_res}")
         
         # Calculate hidden size
         hidden_size = max(8, int(self.combined_dim * hidden_ratio))
@@ -432,6 +437,7 @@ def build_model(
     backbone_name: str = "convnext_tiny",
     pretrained: bool = True,
     grid: Optional[Tuple[int, int]] = None,
+    tile_size: Optional[int] = None,
     **kwargs,
 ) -> nn.Module:
     """
@@ -448,6 +454,7 @@ def build_model(
         backbone_name: Name of timm backbone
         pretrained: Whether to use pretrained weights
         grid: Tuple (rows, cols) for tiling (only for tiled models)
+        tile_size: Resolution to resize tiles to before backbone (None = infer from backbone)
         **kwargs: Additional arguments (dropout, hidden_ratio)
         
     Returns:
@@ -461,11 +468,14 @@ def build_model(
     
     model_class = MODEL_REGISTRY[model_type]
     
+    # Build common kwargs
+    common_kwargs = {"pretrained": pretrained, "tile_size": tile_size, **kwargs}
+    
     # Add grid parameter for tiled models
     if "tiled" in model_type and grid is not None:
-        return model_class(backbone_name, pretrained=pretrained, grid=grid, **kwargs)
+        return model_class(backbone_name, grid=grid, **common_kwargs)
     else:
-        return model_class(backbone_name, pretrained=pretrained, **kwargs)
+        return model_class(backbone_name, **common_kwargs)
 
 
 def get_stream_mode(model_type: str) -> str:

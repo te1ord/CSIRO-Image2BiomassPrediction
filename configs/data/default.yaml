@@ -7,10 +7,14 @@ test_image_dir: ${data.data_root}/test
 
 # Pre-defined fold assignments (created by scripts/data_split.py)
 # Wide format CSV with 'fold' column (0-indexed)
-fold_assignments_csv: ${data.data_root}/folds/fold_assignments.csv
+fold_assignments_csv: ${data.data_root}/folds_groupby_data/fold_assignments.csv
 
 # Image settings
-img_size: 518  # High resolution for fine details
+img_size: 768  # Size to resize each stream (left/right half or full image)
+
+# Tile resolution for tiled models (resolution each tile is resized to before backbone)
+# null = infer from backbone's expected input size (e.g., 518 for DINOv2, 224 for ConvNeXT)
+tile_size: null
 
 # Cross-validation
 n_folds: 5

@@ -74,6 +74,9 @@ def main(cfg: DictConfig):
     print(f"✓ Loaded {len(fold_df)} samples with pre-defined folds")
     
     # Model factory function
+    # tile_size: None means infer from backbone, otherwise use config value
+    tile_size = cfg.data.get("tile_size", None)
+    
     def model_fn():
         grid = tuple(cfg.model.tiled.grid) if "tiled" in cfg.model.model_type else None
         return build_model(
@@ -83,9 +86,12 @@ def main(cfg: DictConfig):
             dropout=cfg.model.heads.dropout,
             hidden_ratio=cfg.model.heads.hidden_ratio,
             grid=grid,
+            tile_size=tile_size,
         )
     
+    tile_desc = f"{tile_size}px" if tile_size else "inferred from backbone"
     print(f"\n[2/3] Model: {cfg.model.model_type} with {cfg.model.backbone.name}")
+    print(f"  Tile size: {tile_desc}")
     
     # Determine which folds to train
     folds_to_train = cfg.training.get("folds_to_train", None)
