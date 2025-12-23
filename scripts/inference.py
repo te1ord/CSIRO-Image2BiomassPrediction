@@ -3,15 +3,18 @@ Inference script for biomass prediction models
 
 Supports:
 - Single-stream (full image) and two-stream (left/right split) modes
-- Single model or ensemble (multiple checkpoints)
+- Ensemble of multiple folds or specific fold selection
 - With or without Test-Time Augmentation (TTA)
 
 Usage:
-    # Ensemble from directory (default)
+    # All folds (default)
     python scripts/inference.py inference.checkpoint_dir=logs/exp
     
-    # Single model
-    python scripts/inference.py inference.checkpoint_path=logs/exp/best.ckpt
+    # Specific folds only
+    python scripts/inference.py inference.folds="[0, 2, 4]"
+    
+    # Single fold
+    python scripts/inference.py inference.folds="[1]"
     
     # Without TTA
     python scripts/inference.py inference.use_tta=false
@@ -30,11 +33,7 @@ from omegaconf import DictConfig, OmegaConf
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from src.models.two_stream import build_model, get_stream_mode
-from src.inference.predictor import (
-    Predictor, 
-    load_single_model, 
-    load_models_from_dir,
-)
+from src.inference.predictor import Predictor, load_models
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
@@ -58,6 +57,10 @@ def main(cfg: DictConfig):
     # Model factory function
     tile_size = cfg.data.get("tile_size", None)
     
+    # Parse feature_layers from config
+    feature_layers_cfg = cfg.model.get("feature_layers", None)
+    feature_layers = list(feature_layers_cfg) if feature_layers_cfg is not None else None
+    
     def model_fn():
         grid = tuple(cfg.model.tiled.grid) if "tiled" in cfg.model.model_type else None
         return build_model(
@@ -68,35 +71,33 @@ def main(cfg: DictConfig):
             hidden_ratio=cfg.model.heads.hidden_ratio,
             grid=grid,
             tile_size=tile_size,
+            feature_layers=feature_layers,
         )
     
     # Load model(s)
     print(f"\n[1/4] Loading model(s)...")
     
-    # Check if single checkpoint or directory
-    checkpoint_path = cfg.inference.get("checkpoint_path", None)
+    checkpoint_dir = cfg.inference.checkpoint_dir
+    checkpoint_template = cfg.inference.get("checkpoint_template", "best_model_fold{fold}.ckpt")
     
-    if checkpoint_path:
-        # Single model mode
-        print(f"Mode: Single model")
-        model = load_single_model(
-            model_fn=model_fn,
-            checkpoint_path=checkpoint_path,
-            device=device,
-        )
-        models = [model]
+    # Parse folds from config (null = all, [0,2,4] = specific folds)
+    folds_cfg = cfg.inference.get("folds", None)
+    if folds_cfg is not None:
+        folds = list(folds_cfg)
     else:
-        # Ensemble mode - load from directory
-        print(f"Mode: Ensemble from directory")
-        checkpoint_dir = cfg.inference.checkpoint_dir
-        pattern = cfg.inference.get("checkpoint_pattern", "*.ckpt")
-        
-        models = load_models_from_dir(
-            model_fn=model_fn,
-            checkpoint_dir=checkpoint_dir,
-            device=device,
-            pattern=pattern,
-        )
+        folds = None
+    
+    folds_desc = str(folds) if folds else "all available"
+    print(f"Checkpoint dir: {checkpoint_dir}")
+    print(f"Folds to load: {folds_desc}")
+    
+    models = load_models(
+        model_fn=model_fn,
+        checkpoint_dir=checkpoint_dir,
+        folds=folds,
+        device=device,
+        checkpoint_template=checkpoint_template,
+    )
     
     print(f"Using {len(models)} model(s) for inference")
     

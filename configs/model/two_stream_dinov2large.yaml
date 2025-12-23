@@ -1,7 +1,7 @@
 # DINOv2 Two-Stream Tiled FiLM Model Configuration
 # High-performance variant using DINOv2 backbone with FiLM modulation
 
-model_type: two_stream_tiled
+model_type: two_stream
 
 # Backbone configuration (DINOv2 from timm)
 backbone:
@@ -12,10 +12,6 @@ backbone:
 heads:
   dropout: 0.30
   hidden_ratio: 0.25
-
-# Feature extraction layers (null = last only, list = concat from those layers)
-# For DINOv2 ViT-Large: 24 blocks (0-23), e.g., [-4, -3, -2, -1] for last 4
-feature_layers: [17, 23]
 
 # Tiled model settings
 tiled:

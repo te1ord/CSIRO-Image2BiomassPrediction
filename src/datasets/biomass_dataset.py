@@ -40,6 +40,7 @@ class BiomassDataset(Dataset):
         transform: Optional[Callable] = None,
         mode: str = "train",
         stream_mode: str = "two_stream",  # "single_stream" or "two_stream"
+        full_image_size: Optional[Tuple[int, int]] = None,  # (width, height) to resize full image before processing
     ):
         """
         Args:
@@ -48,12 +49,15 @@ class BiomassDataset(Dataset):
             transform: Albumentations transform to apply
             mode: 'train' or 'test'
             stream_mode: 'single_stream' (full image) or 'two_stream' (left/right split)
+            full_image_size: Optional (width, height) to resize full image before stream splitting.
+                            None = keep original size. Use to test effect of early downscaling.
         """
         self.df = df.reset_index(drop=True)
         self.image_dir = image_dir
         self.transform = transform
         self.mode = mode
         self.stream_mode = stream_mode
+        self.full_image_size = full_image_size
         
         if stream_mode not in ["single_stream", "two_stream"]:
             raise ValueError(f"stream_mode must be 'single_stream' or 'two_stream', got {stream_mode}")
@@ -80,9 +84,19 @@ class BiomassDataset(Dataset):
         right = img[:, mid:]
         return left, right
     
+    def _resize_full_image(self, img: np.ndarray) -> np.ndarray:
+        """Resize full image before stream processing (if configured)"""
+        if self.full_image_size is None:
+            return img
+        target_w, target_h = self.full_image_size
+        return cv2.resize(img, (target_w, target_h), interpolation=cv2.INTER_AREA)
+    
     def __getitem__(self, idx: int):
         row = self.df.iloc[idx]
         img = self._load_image(row["image_path"])
+        
+        # Optionally resize full image before stream splitting
+        img = self._resize_full_image(img)
         
         if self.stream_mode == "single_stream":
             # Single stream: use full image

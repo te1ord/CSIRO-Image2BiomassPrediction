@@ -15,12 +15,17 @@ tta_views:
   - vflip
 
 # Model checkpoints
-# Option 1: Single checkpoint file
-checkpoint_path: null  # e.g., "logs/exp/fold1/best_model.ckpt"
-
-# Option 2: Directory with multiple checkpoints (ensemble)
 checkpoint_dir: ${checkpoint_dir}
-checkpoint_pattern: "*.ckpt"  # glob pattern for finding checkpoints
+
+# Which folds to load for ensemble:
+# - null: load all available checkpoints matching the template
+# - [0, 1, 2, 3, 4]: load all 5 folds
+# - [0, 2, 4]: load only folds 0, 2, 4
+# - [1]: load only fold 1 (single model inference)
+folds: null
+
+# Checkpoint filename template ({fold} will be replaced with fold number)
+checkpoint_template: "best_model_fold{fold}.ckpt"
 
 # Output
 submission_file: submission.csv

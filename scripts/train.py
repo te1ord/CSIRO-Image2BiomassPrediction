@@ -77,6 +77,13 @@ def main(cfg: DictConfig):
     # tile_size: None means infer from backbone, otherwise use config value
     tile_size = cfg.data.get("tile_size", None)
     
+    # Parse feature_layers from config (null = last only, list = concat)
+    feature_layers_cfg = cfg.model.get("feature_layers", None)
+    if feature_layers_cfg is not None:
+        feature_layers = list(feature_layers_cfg)
+    else:
+        feature_layers = None
+    
     def model_fn():
         grid = tuple(cfg.model.tiled.grid) if "tiled" in cfg.model.model_type else None
         return build_model(
@@ -87,11 +94,14 @@ def main(cfg: DictConfig):
             hidden_ratio=cfg.model.heads.hidden_ratio,
             grid=grid,
             tile_size=tile_size,
+            feature_layers=feature_layers,
         )
     
     tile_desc = f"{tile_size}px" if tile_size else "inferred from backbone"
+    layers_desc = str(feature_layers) if feature_layers else "last only"
     print(f"\n[2/3] Model: {cfg.model.model_type} with {cfg.model.backbone.name}")
     print(f"  Tile size: {tile_desc}")
+    print(f"  Feature layers: {layers_desc}")
     
     # Determine which folds to train
     folds_to_train = cfg.training.get("folds_to_train", None)
@@ -107,6 +117,15 @@ def main(cfg: DictConfig):
     print(f"\n[3/3] Starting training...")
     print(f"  Stage 1: {cfg.training.stage1.epochs} epochs (frozen), LR={cfg.training.stage1.lr}")
     print(f"  Stage 2: {cfg.training.stage2.epochs} epochs (fine-tune), LR={cfg.training.stage2.lr}")
+    
+    # Parse full_image_size from config (can be null or [width, height])
+    full_image_size_cfg = cfg.data.get("full_image_size", None)
+    if full_image_size_cfg is not None:
+        full_image_size = tuple(full_image_size_cfg) if hasattr(full_image_size_cfg, '__iter__') else None
+    else:
+        full_image_size = None
+    
+    print(f"  Full image size: {full_image_size}")
     
     results = train_kfold(
         model_fn=model_fn,
@@ -143,6 +162,8 @@ def main(cfg: DictConfig):
         early_stopping=cfg.training.early_stopping.enabled,
         patience=cfg.training.early_stopping.patience,
         seed=cfg.seed,
+        # Full image resize before stream splitting
+        full_image_size=full_image_size,
     )
     
     print("\n✓ Training complete!")

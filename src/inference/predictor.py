@@ -260,79 +260,99 @@ def _load_checkpoint_state_dict(checkpoint_path: str, device: str = "cuda") -> d
     return state_dict
 
 
-def load_single_model(
-    model_fn,
-    checkpoint_path: str,
-    device: str = "cuda",
-) -> nn.Module:
-    """
-    Load a single model from a checkpoint file.
-    
-    Args:
-        model_fn: Function returning a fresh model instance
-        checkpoint_path: Path to checkpoint file
-        device: Device to place model on
-        
-    Returns:
-        Loaded model
-    """
-    if not os.path.exists(checkpoint_path):
-        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
-    
-    print(f"→ Loading: {checkpoint_path}")
-    
-    model = model_fn()
-    state_dict = _load_checkpoint_state_dict(checkpoint_path, device)
-    model.load_state_dict(state_dict, strict=False)
-    model.to(device)
-    model.eval()
-    
-    print(f"✓ Loaded model successfully")
-    return model
-
-
-def load_models_from_dir(
+def load_models(
     model_fn,
     checkpoint_dir: str,
+    folds: Optional[List[int]] = None,
     device: str = "cuda",
-    pattern: str = "*.ckpt",
+    checkpoint_template: str = "best_model_fold{fold}.ckpt",
 ) -> List[nn.Module]:
     """
-    Load ALL model checkpoints from a directory (ensemble).
-
+    Load model checkpoints from a directory.
+    
+    Supports:
+    - Loading specific folds by number (e.g., folds=[0, 2, 4])
+    - Loading all available checkpoints (folds=None)
+    
     Args:
         model_fn: Function returning a fresh model instance
         checkpoint_dir: Folder with checkpoint files
+        folds: List of fold numbers to load. If None, loads all matching checkpoints.
         device: Device to place models on
-        pattern: Glob pattern to discover checkpoints (default: *.ckpt)
-
+        checkpoint_template: Template for checkpoint filename with {fold} placeholder
+        
     Returns:
         List of loaded models
+        
+    Examples:
+        # Load all checkpoints
+        models = load_models(model_fn, "logs/exp", folds=None)
+        
+        # Load only folds 0, 2, 4
+        models = load_models(model_fn, "logs/exp", folds=[0, 2, 4])
+        
+        # Load single fold
+        models = load_models(model_fn, "logs/exp", folds=[1])
     """
-    # Find all checkpoint files
-    checkpoint_paths = sorted(glob.glob(os.path.join(checkpoint_dir, pattern)))
-
+    checkpoint_paths = []
+    
+    if folds is not None:
+        # Load specific folds
+        for fold_idx in folds:
+            filename = checkpoint_template.format(fold=fold_idx)
+            ckpt_path = os.path.join(checkpoint_dir, filename)
+            if os.path.exists(ckpt_path):
+                checkpoint_paths.append(ckpt_path)
+            else:
+                print(f"⚠ Warning: Checkpoint not found: {ckpt_path}")
+    else:
+        # Load all checkpoints matching the pattern
+        # Convert template to glob pattern: "best_model_fold{fold}.ckpt" -> "best_model_fold*.ckpt"
+        glob_pattern = checkpoint_template.replace("{fold}", "*")
+        checkpoint_paths = sorted(glob.glob(os.path.join(checkpoint_dir, glob_pattern)))
+        
+        # Fallback: try generic *.ckpt if no matches
+        if len(checkpoint_paths) == 0:
+            checkpoint_paths = sorted(glob.glob(os.path.join(checkpoint_dir, "*.ckpt")))
+    
     if len(checkpoint_paths) == 0:
-        raise FileNotFoundError(f"No checkpoints found in {checkpoint_dir} (pattern: {pattern})")
-
-    print(f"Found {len(checkpoint_paths)} checkpoints")
-
+        raise FileNotFoundError(
+            f"No checkpoints found in {checkpoint_dir}. "
+            f"Looked for: {checkpoint_template.format(fold='*') if folds is None else [checkpoint_template.format(fold=f) for f in folds]}"
+        )
+    
+    folds_desc = str(folds) if folds else "all"
+    print(f"Loading {len(checkpoint_paths)} checkpoint(s) (folds: {folds_desc})")
+    
     models = []
-
     for ckpt_path in checkpoint_paths:
         print(f"→ Loading: {os.path.basename(ckpt_path)}")
-
+        
         model = model_fn()
         state_dict = _load_checkpoint_state_dict(ckpt_path, device)
         model.load_state_dict(state_dict, strict=False)
         model.to(device)
         model.eval()
-
+        
         models.append(model)
-
-    print(f"✓ Loaded {len(models)} models successfully")
+    
+    print(f"✓ Loaded {len(models)} model(s) successfully")
     return models
 
 
-# Alias for backwards compatibility
+# Legacy aliases for backwards compatibility
+def load_single_model(model_fn, checkpoint_path: str, device: str = "cuda") -> nn.Module:
+    """Load a single model (legacy wrapper)."""
+    checkpoint_dir = os.path.dirname(checkpoint_path)
+    filename = os.path.basename(checkpoint_path)
+    # Create a dummy template that matches the exact filename
+    models = load_models(model_fn, checkpoint_dir, folds=[0], device=device, checkpoint_template=filename.replace("0", "{fold}") if "0" in filename else filename)
+    return models[0] if models else load_models(model_fn, checkpoint_dir, folds=None, device=device, checkpoint_template=filename)[0]
+
+
+def load_models_from_dir(model_fn, checkpoint_dir: str, device: str = "cuda", pattern: str = "*.ckpt") -> List[nn.Module]:
+    """Load all models from directory (legacy wrapper)."""
+    return load_models(model_fn, checkpoint_dir, folds=None, device=device)
+
+
 load_fold_models = load_models_from_dir

@@ -6,7 +6,7 @@ Uses pre-defined fold assignments from CSV (created by scripts/data_split.py)
 import pytorch_lightning as pl
 import pandas as pd
 from torch.utils.data import DataLoader
-from typing import Optional
+from typing import Optional, Tuple
 
 from src.datasets.biomass_dataset import BiomassDataset
 from src.augmentations.transforms import get_train_transforms, get_val_transforms
@@ -37,6 +37,8 @@ class BiomassDataModule(pl.LightningDataModule):
         fold_idx: int = 0,  # 0-indexed fold to use as validation
         # Augmentation settings
         use_augmentation: bool = True,
+        # Full image resize before stream splitting
+        full_image_size: Optional[Tuple[int, int]] = None,
     ):
         """
         Args:
@@ -48,6 +50,7 @@ class BiomassDataModule(pl.LightningDataModule):
             num_workers: Number of data loading workers
             fold_idx: Which fold to use as validation (0-indexed)
             use_augmentation: Whether to use training augmentations
+            full_image_size: Optional (width, height) to resize full image before stream splitting
         """
         super().__init__()
         self.save_hyperparameters(ignore=["fold_df"])
@@ -60,6 +63,7 @@ class BiomassDataModule(pl.LightningDataModule):
         self.num_workers = num_workers
         self.fold_idx = fold_idx
         self.use_augmentation = use_augmentation
+        self.full_image_size = full_image_size
         
         # Will be set in setup()
         self.train_dataset = None
@@ -100,6 +104,7 @@ class BiomassDataModule(pl.LightningDataModule):
             train_transform,
             mode="train",
             stream_mode=self.stream_mode,
+            full_image_size=self.full_image_size,
         )
         
         self.val_dataset = BiomassDataset(
@@ -108,6 +113,7 @@ class BiomassDataModule(pl.LightningDataModule):
             val_transform,
             mode="train",
             stream_mode=self.stream_mode,
+            full_image_size=self.full_image_size,
         )
     
     def train_dataloader(self) -> DataLoader:

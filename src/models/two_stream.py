@@ -46,6 +46,7 @@ class BaseMultiHead(nn.Module):
         hidden_ratio: float = 0.25,
         feature_multiplier: int = 1,  # 1 for single-stream, 2 for two-stream
         tile_size: Optional[int] = None,  # Resolution to resize tiles to (None = infer from backbone)
+        feature_layers: Optional[List[int]] = None,  # Layers to extract (None = last only, e.g., [8,9,10,11])
     ):
         super().__init__()
         
@@ -56,9 +57,28 @@ class BaseMultiHead(nn.Module):
             num_classes=0,
         )
         
-        # Get feature dimension
-        self.feat_dim = self.backbone.num_features
+        # Store feature layer config
+        self.feature_layers = feature_layers
+        
+        # Get feature dimension (per layer)
+        self.feat_dim_per_layer = self.backbone.num_features
+        
+        # Calculate total feature dimension based on layer concatenation
+        if feature_layers is not None:
+            n_layers = len(feature_layers)
+            self.feat_dim = self.feat_dim_per_layer * n_layers
+            print(f"Multi-layer features: layers {feature_layers}, dim={self.feat_dim_per_layer}x{n_layers}={self.feat_dim}")
+        else:
+            self.feat_dim = self.feat_dim_per_layer
+            print(f"Single layer features (last): dim={self.feat_dim}")
+        
         self.combined_dim = self.feat_dim * feature_multiplier
+        
+        # Setup hooks for intermediate layer extraction if needed
+        self._intermediate_features = {}
+        self._hooks = []
+        if feature_layers is not None:
+            self._register_feature_hooks()
         
         # Input resolution: use config tile_size if provided, otherwise infer from backbone
         if tile_size is not None:
@@ -77,6 +97,104 @@ class BaseMultiHead(nn.Module):
         
         # Softplus for non-negative outputs
         self.softplus = nn.Softplus(beta=1.0)
+    
+    def _get_backbone_blocks(self) -> Optional[nn.ModuleList]:
+        """Get the sequential blocks/stages from the backbone."""
+        # ViT, DINOv2, Swin
+        if hasattr(self.backbone, "blocks"):
+            return self.backbone.blocks
+        # ConvNeXT
+        if hasattr(self.backbone, "stages"):
+            return self.backbone.stages
+        # ResNet
+        if hasattr(self.backbone, "layer4"):
+            layers = nn.ModuleList()
+            for name in ["layer1", "layer2", "layer3", "layer4"]:
+                if hasattr(self.backbone, name):
+                    layers.append(getattr(self.backbone, name))
+            return layers
+        return None
+    
+    def _register_feature_hooks(self):
+        """Register forward hooks on specified layers to capture intermediate features."""
+        blocks = self._get_backbone_blocks()
+        if blocks is None:
+            print("Warning: Could not find backbone blocks, using last layer only")
+            self.feature_layers = None
+            return
+        
+        n_blocks = len(blocks)
+        print(f"Backbone has {n_blocks} blocks, registering hooks on layers: {self.feature_layers}")
+        
+        for layer_idx in self.feature_layers:
+            if layer_idx < 0:
+                # Support negative indexing
+                layer_idx = n_blocks + layer_idx
+            
+            if 0 <= layer_idx < n_blocks:
+                hook = blocks[layer_idx].register_forward_hook(
+                    self._make_hook(layer_idx)
+                )
+                self._hooks.append(hook)
+            else:
+                print(f"Warning: Layer {layer_idx} out of range [0, {n_blocks})")
+    
+    def _make_hook(self, layer_idx: int):
+        """Create a hook function for a specific layer."""
+        def hook(module, input, output):
+            # For ViT: output is [B, N, D] where N = num_patches + 1 (CLS token)
+            # Take CLS token (first token) as the feature
+            if isinstance(output, torch.Tensor):
+                if output.dim() == 3:
+                    # ViT-like: [B, N, D] -> take CLS token [B, D]
+                    self._intermediate_features[layer_idx] = output[:, 0]
+                elif output.dim() == 2:
+                    # Already pooled [B, D]
+                    self._intermediate_features[layer_idx] = output
+                else:
+                    # CNN-like: [B, C, H, W] -> global avg pool
+                    self._intermediate_features[layer_idx] = output.mean(dim=[2, 3])
+            elif isinstance(output, tuple):
+                # Some blocks return tuple, take first element
+                out = output[0]
+                if out.dim() == 3:
+                    self._intermediate_features[layer_idx] = out[:, 0]
+                else:
+                    self._intermediate_features[layer_idx] = out.mean(dim=[2, 3]) if out.dim() == 4 else out
+        return hook
+    
+    def _extract_features(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Extract features from backbone, optionally from multiple layers.
+        
+        Args:
+            x: Input tensor [B, C, H, W]
+            
+        Returns:
+            Features [B, feat_dim] - concatenated if multiple layers
+        """
+        # Clear previous features
+        self._intermediate_features.clear()
+        
+        # Forward pass (hooks will capture intermediate features)
+        last_features = self.backbone(x)
+        
+        if self.feature_layers is None:
+            # Use last layer only
+            return last_features
+        
+        # Concatenate features from specified layers
+        layer_features = []
+        for layer_idx in self.feature_layers:
+            if layer_idx < 0:
+                layer_idx = len(self._get_backbone_blocks()) + layer_idx
+            if layer_idx in self._intermediate_features:
+                layer_features.append(self._intermediate_features[layer_idx])
+            else:
+                print(f"Warning: Layer {layer_idx} features not found, using last layer")
+                layer_features.append(last_features)
+        
+        return torch.cat(layer_features, dim=1)
         
     def _infer_input_res(self) -> int:
         """Infer input resolution from backbone"""
@@ -162,7 +280,7 @@ class SingleStreamMultiHead(BaseMultiHead):
         Returns:
             Tuple of (total, gdm, green) predictions, each [B, 1]
         """
-        features = self.backbone(x)
+        features = self._extract_features(x)
         return self._predict_from_features(features)
 
 
@@ -199,7 +317,7 @@ class SingleStreamTiled(BaseMultiHead):
                         mode="bilinear",
                         align_corners=False,
                     )
-                feat = self.backbone(tile)
+                feat = self._extract_features(tile)
                 feats.append(feat)
         
         # Average tile features
@@ -256,7 +374,7 @@ class SingleStreamTiledFiLM(SingleStreamTiled):
                         mode="bilinear",
                         align_corners=False,
                     )
-                feat = self.backbone(tile)
+                feat = self._extract_features(tile)
                 feats.append(feat)
         
         return torch.stack(feats, dim=0).permute(1, 0, 2)  # [B, T, F]
@@ -304,8 +422,8 @@ class TwoStreamMultiHead(BaseMultiHead):
         Returns:
             Tuple of (total, gdm, green) predictions, each [B, 1]
         """
-        feat_left = self.backbone(x_left)
-        feat_right = self.backbone(x_right)
+        feat_left = self._extract_features(x_left)
+        feat_right = self._extract_features(x_right)
         combined = torch.cat([feat_left, feat_right], dim=1)
         return self._predict_from_features(combined)
 
@@ -343,7 +461,7 @@ class TwoStreamTiled(BaseMultiHead):
                         mode="bilinear",
                         align_corners=False,
                     )
-                feat = self.backbone(tile)
+                feat = self._extract_features(tile)
                 feats.append(feat)
         
         feats = torch.stack(feats, dim=0).permute(1, 0, 2)  # [B, T, F]
@@ -389,7 +507,7 @@ class TwoStreamTiledFiLM(TwoStreamTiled):
                         mode="bilinear",
                         align_corners=False,
                     )
-                feat = self.backbone(tile)
+                feat = self._extract_features(tile)
                 feats.append(feat)
         
         return torch.stack(feats, dim=0).permute(1, 0, 2)  # [B, T, F]

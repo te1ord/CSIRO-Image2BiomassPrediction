@@ -4,7 +4,7 @@ Lightning Trainer utilities and K-Fold training function
 Uses pre-defined fold assignments (no on-the-fly splitting)
 """
 import os
-from typing import Dict, List, Callable, Optional, Any
+from typing import Dict, List, Callable, Optional, Any, Tuple
 import numpy as np
 import pandas as pd
 import torch
@@ -148,6 +148,8 @@ def train_fold(
     early_stopping: bool = False,
     patience: int = 10,
     seed: int = 42,
+    # Full image resize before stream splitting
+    full_image_size: Optional[Tuple[int, int]] = None,
 ) -> Dict:
     """
     Train a single fold using PyTorch Lightning.
@@ -193,6 +195,7 @@ def train_fold(
         batch_size=batch_size,
         num_workers=num_workers,
         fold_idx=fold,  # 0-indexed fold
+        full_image_size=full_image_size,
     )
     
     # Prepare config for logging
