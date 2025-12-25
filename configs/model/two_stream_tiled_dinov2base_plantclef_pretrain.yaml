@@ -1,0 +1,38 @@
+# DINOv2 Two-Stream Tiled Model with PlantCLEF Pretrained Weights
+# Uses HuggingFace safetensors for custom pretrained backbone
+
+model_type: two_stream_tiled
+
+# Backbone configuration
+backbone:
+  # Base timm model architecture (used to create the model structure)
+  name: vit_base_patch14_reg4_dinov2.lvd142m
+  pretrained: false  # We load from HuggingFace instead
+  
+  # HuggingFace custom weights (optional - set both to null to use standard timm pretrained)
+  hf_repo: vincent-espitalier/dino-v2-reg4-with-plantclef2024-weights
+  hf_filename: vit_base_patch14_reg4_dinov2_lvd142m_pc24_onlyclassifier_then_all.safetensors
+
+# Head configuration
+heads:
+  dropout: 0.30
+  hidden_ratio: 0.25
+
+# Feature extraction layers (null = last only, list = concat from those layers)
+# For DINOv2 ViT-Base: 12 blocks (0-11), e.g., [8, 9, 10, 11] for last 4
+# Use negative indices for last N: [-4, -3, -2, -1]
+# feature_layers: null
+feature_layers: [7, 11]
+
+# Feature pooling method for intermediate layers:
+# - "cls": Use CLS token only (default, fast, dim=D)
+# - "mean": Mean pooling over all patch tokens (better spatial context, dim=D)
+# - "cls_mean": Concatenate CLS + mean patches (richest representation, dim=2D)
+feature_pooling: cls_mean
+
+# Tiled model settings
+tiled:
+  grid: [2, 2]
+
+# Checkpoint
+save_path: ${checkpoint_dir}

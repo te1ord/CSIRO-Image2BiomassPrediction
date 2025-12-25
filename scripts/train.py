@@ -84,6 +84,13 @@ def main(cfg: DictConfig):
     else:
         feature_layers = None
     
+    # Feature pooling method for intermediate layers
+    feature_pooling = cfg.model.get("feature_pooling", "cls")
+    
+    # Parse HuggingFace custom backbone config (optional)
+    hf_repo = cfg.model.backbone.get("hf_repo", None)
+    hf_filename = cfg.model.backbone.get("hf_filename", None)
+    
     def model_fn():
         grid = tuple(cfg.model.tiled.grid) if "tiled" in cfg.model.model_type else None
         return build_model(
@@ -95,13 +102,18 @@ def main(cfg: DictConfig):
             grid=grid,
             tile_size=tile_size,
             feature_layers=feature_layers,
+            feature_pooling=feature_pooling,
+            hf_repo=hf_repo,
+            hf_filename=hf_filename,
         )
     
     tile_desc = f"{tile_size}px" if tile_size else "inferred from backbone"
     layers_desc = str(feature_layers) if feature_layers else "last only"
+    hf_desc = f"{hf_repo}" if hf_repo else "none (using timm)"
     print(f"\n[2/3] Model: {cfg.model.model_type} with {cfg.model.backbone.name}")
     print(f"  Tile size: {tile_desc}")
-    print(f"  Feature layers: {layers_desc}")
+    print(f"  Feature layers: {layers_desc}, pooling: {feature_pooling}")
+    print(f"  HuggingFace weights: {hf_desc}")
     
     # Determine which folds to train
     folds_to_train = cfg.training.get("folds_to_train", None)

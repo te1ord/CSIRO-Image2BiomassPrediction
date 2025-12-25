@@ -11,7 +11,7 @@ defaults:
 seed: 42
 device: cuda
 
-exp_name: our_split_mlps_only_dinov2large_1036x518_full_image_resize_518_side_size
+exp_name: our_split_mlps_only_dinov2large_17_23_features_cls_mean_pooling
 
 # Output directories
 output_dir: outputs

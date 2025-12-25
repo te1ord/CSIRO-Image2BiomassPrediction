@@ -4,6 +4,7 @@ Multi-Head Model Architectures for CSIRO Biomass Prediction
 Supports:
 - Single-stream: Full image processing (with optional tiling)
 - Two-stream: Left/right image patches processed separately
+- Custom HuggingFace backbones with safetensors weights
 
 Architecture:
 - Shared backbone (timm model, e.g., convnext_tiny or DINOv2 ViT)
@@ -15,7 +16,62 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import timm
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Dict
+
+
+def _load_hf_safetensors(
+    hf_repo: str,
+    hf_filename: str,
+    base_model_name: str,
+) -> nn.Module:
+    """
+    Load a timm model with weights from HuggingFace safetensors.
+    
+    Args:
+        hf_repo: HuggingFace repository (e.g., "vincent-espitalier/dino-v2-reg4-with-plantclef2024-weights")
+        hf_filename: Safetensors filename in the repo
+        base_model_name: Base timm model name (e.g., "vit_base_patch14_reg4_dinov2.lvd142m")
+        
+    Returns:
+        Loaded model
+    """
+    from huggingface_hub import hf_hub_download
+    from safetensors.torch import load_file
+    
+    print(f"Loading HuggingFace backbone:")
+    print(f"  Repo: {hf_repo}")
+    print(f"  File: {hf_filename}")
+    print(f"  Base model: {base_model_name}")
+    
+    # Download safetensors file
+    ckpt_path = hf_hub_download(repo_id=hf_repo, filename=hf_filename)
+    sd = load_file(ckpt_path)
+    
+    # Create base timm model (without pretrained weights)
+    model = timm.create_model(base_model_name, pretrained=False, num_classes=0)
+    
+    # Clean state dict
+    cleaned_sd = {}
+    for k, v in sd.items():
+        nk = k
+        # Remove common prefixes
+        if nk.startswith("module."):
+            nk = nk[len("module."):]
+        cleaned_sd[nk] = v
+    
+    # Drop classifier head keys (we use num_classes=0)
+    drop_prefixes = ("head.", "fc.", "classifier.", "cls_head.", "linear_head.")
+    cleaned_sd = {k: v for k, v in cleaned_sd.items() if not k.startswith(drop_prefixes)}
+    
+    # Load weights
+    missing, unexpected = model.load_state_dict(cleaned_sd, strict=False)
+    if missing:
+        print(f"  Missing keys: {len(missing)} (expected for num_classes=0)")
+    if unexpected:
+        print(f"  Unexpected keys: {unexpected[:5]}...")
+    
+    print(f"✓ Loaded HuggingFace backbone successfully")
+    return model
 
 
 def _make_edges(length: int, parts: int) -> List[Tuple[int, int]]:
@@ -36,6 +92,10 @@ class BaseMultiHead(nn.Module):
     
     Predicts 3 primary targets: Dry_Total_g, GDM_g, Dry_Green_g
     Derived targets: Dry_Dead_g = Total - GDM, Dry_Clover_g = GDM - Green
+    
+    Supports:
+    - Standard timm backbones (backbone_name only)
+    - HuggingFace safetensors backbones (hf_repo + hf_filename + backbone_name as base)
     """
     
     def __init__(
@@ -47,15 +107,32 @@ class BaseMultiHead(nn.Module):
         feature_multiplier: int = 1,  # 1 for single-stream, 2 for two-stream
         tile_size: Optional[int] = None,  # Resolution to resize tiles to (None = infer from backbone)
         feature_layers: Optional[List[int]] = None,  # Layers to extract (None = last only, e.g., [8,9,10,11])
+        feature_pooling: str = "cls",  # "cls", "mean", or "cls_mean" (concat both)
+        hf_repo: Optional[str] = None,  # HuggingFace repo for custom weights
+        hf_filename: Optional[str] = None,  # Safetensors filename in HF repo
     ):
         super().__init__()
         
-        # Create backbone
-        self.backbone = timm.create_model(
-            backbone_name,
-            pretrained=pretrained,
-            num_classes=0,
-        )
+        # Store pooling config
+        self.feature_pooling = feature_pooling
+        if feature_pooling not in ("cls", "mean", "cls_mean"):
+            raise ValueError(f"feature_pooling must be 'cls', 'mean', or 'cls_mean', got: {feature_pooling}")
+        
+        # Create backbone - either from HuggingFace or standard timm
+        if hf_repo is not None and hf_filename is not None:
+            # Load from HuggingFace safetensors
+            self.backbone = _load_hf_safetensors(
+                hf_repo=hf_repo,
+                hf_filename=hf_filename,
+                base_model_name=backbone_name,
+            )
+        else:
+            # Standard timm model
+            self.backbone = timm.create_model(
+                backbone_name,
+                pretrained=pretrained,
+                num_classes=0,
+            )
         
         # Store feature layer config
         self.feature_layers = feature_layers
@@ -63,14 +140,17 @@ class BaseMultiHead(nn.Module):
         # Get feature dimension (per layer)
         self.feat_dim_per_layer = self.backbone.num_features
         
+        # Pooling multiplier: cls_mean doubles the feature dim (concat CLS + mean)
+        pooling_mult = 2 if feature_pooling == "cls_mean" else 1
+        
         # Calculate total feature dimension based on layer concatenation
         if feature_layers is not None:
             n_layers = len(feature_layers)
-            self.feat_dim = self.feat_dim_per_layer * n_layers
-            print(f"Multi-layer features: layers {feature_layers}, dim={self.feat_dim_per_layer}x{n_layers}={self.feat_dim}")
+            self.feat_dim = self.feat_dim_per_layer * n_layers * pooling_mult
+            print(f"Multi-layer features: layers {feature_layers}, dim={self.feat_dim_per_layer}x{n_layers}x{pooling_mult}={self.feat_dim}, pooling={feature_pooling}")
         else:
-            self.feat_dim = self.feat_dim_per_layer
-            print(f"Single layer features (last): dim={self.feat_dim}")
+            self.feat_dim = self.feat_dim_per_layer * pooling_mult
+            print(f"Single layer features (last): dim={self.feat_dim}, pooling={feature_pooling}")
         
         self.combined_dim = self.feat_dim * feature_multiplier
         
@@ -142,25 +222,53 @@ class BaseMultiHead(nn.Module):
     def _make_hook(self, layer_idx: int):
         """Create a hook function for a specific layer."""
         def hook(module, input, output):
-            # For ViT: output is [B, N, D] where N = num_patches + 1 (CLS token)
-            # Take CLS token (first token) as the feature
+            # For ViT: output is [B, N, D] where N = num_patches + 1 (CLS token at index 0)
+            # For ViT with registers: output is [B, N, D] where N = num_patches + 1 + num_registers
             if isinstance(output, torch.Tensor):
                 if output.dim() == 3:
-                    # ViT-like: [B, N, D] -> take CLS token [B, D]
-                    self._intermediate_features[layer_idx] = output[:, 0]
+                    # ViT-like: [B, N, D]
+                    if self.feature_pooling == "cls":
+                        # Take CLS token only (first token)
+                        self._intermediate_features[layer_idx] = output[:, 0]
+                    elif self.feature_pooling == "mean":
+                        # Mean pooling over all patch tokens (exclude CLS at index 0)
+                        self._intermediate_features[layer_idx] = output[:, 1:].mean(dim=1)
+                    else:  # cls_mean
+                        # Concatenate CLS token + mean of patches
+                        cls_feat = output[:, 0]  # [B, D]
+                        mean_feat = output[:, 1:].mean(dim=1)  # [B, D]
+                        self._intermediate_features[layer_idx] = torch.cat([cls_feat, mean_feat], dim=1)  # [B, 2D]
                 elif output.dim() == 2:
-                    # Already pooled [B, D]
-                    self._intermediate_features[layer_idx] = output
+                    # Already pooled [B, D] - duplicate for cls_mean to match expected dim
+                    if self.feature_pooling == "cls_mean":
+                        self._intermediate_features[layer_idx] = torch.cat([output, output], dim=1)
+                    else:
+                        self._intermediate_features[layer_idx] = output
                 else:
                     # CNN-like: [B, C, H, W] -> global avg pool
-                    self._intermediate_features[layer_idx] = output.mean(dim=[2, 3])
+                    pooled = output.mean(dim=[2, 3])
+                    if self.feature_pooling == "cls_mean":
+                        self._intermediate_features[layer_idx] = torch.cat([pooled, pooled], dim=1)
+                    else:
+                        self._intermediate_features[layer_idx] = pooled
             elif isinstance(output, tuple):
                 # Some blocks return tuple, take first element
                 out = output[0]
                 if out.dim() == 3:
-                    self._intermediate_features[layer_idx] = out[:, 0]
+                    if self.feature_pooling == "cls":
+                        self._intermediate_features[layer_idx] = out[:, 0]
+                    elif self.feature_pooling == "mean":
+                        self._intermediate_features[layer_idx] = out[:, 1:].mean(dim=1)
+                    else:  # cls_mean
+                        cls_feat = out[:, 0]
+                        mean_feat = out[:, 1:].mean(dim=1)
+                        self._intermediate_features[layer_idx] = torch.cat([cls_feat, mean_feat], dim=1)
                 else:
-                    self._intermediate_features[layer_idx] = out.mean(dim=[2, 3]) if out.dim() == 4 else out
+                    pooled = out.mean(dim=[2, 3]) if out.dim() == 4 else out
+                    if self.feature_pooling == "cls_mean":
+                        self._intermediate_features[layer_idx] = torch.cat([pooled, pooled], dim=1)
+                    else:
+                        self._intermediate_features[layer_idx] = pooled
         return hook
     
     def _extract_features(self, x: torch.Tensor) -> torch.Tensor:

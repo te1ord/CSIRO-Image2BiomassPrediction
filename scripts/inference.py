@@ -61,17 +61,28 @@ def main(cfg: DictConfig):
     feature_layers_cfg = cfg.model.get("feature_layers", None)
     feature_layers = list(feature_layers_cfg) if feature_layers_cfg is not None else None
     
+    # Feature pooling method for intermediate layers
+    feature_pooling = cfg.model.get("feature_pooling", "cls")
+    
+    # Parse HuggingFace custom backbone config (for model architecture only - weights from checkpoint)
+    hf_repo = cfg.model.backbone.get("hf_repo", None)
+    hf_filename = cfg.model.backbone.get("hf_filename", None)
+    
     def model_fn():
         grid = tuple(cfg.model.tiled.grid) if "tiled" in cfg.model.model_type else None
         return build_model(
             model_type=cfg.model.model_type,
             backbone_name=cfg.model.backbone.name,
-            pretrained=False,  # We load from checkpoint
+            pretrained=False,  # We load from checkpoint, not pretrained
             dropout=cfg.model.heads.dropout,
             hidden_ratio=cfg.model.heads.hidden_ratio,
             grid=grid,
             tile_size=tile_size,
             feature_layers=feature_layers,
+            feature_pooling=feature_pooling,
+            # Don't pass HF params during inference - we load weights from checkpoint
+            hf_repo=None,
+            hf_filename=None,
         )
     
     # Load model(s)

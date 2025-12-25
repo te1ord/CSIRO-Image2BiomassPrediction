@@ -1,12 +1,16 @@
-# DINOv2 Two-Stream Tiled FiLM Model Configuration
-# High-performance variant using DINOv2 backbone with FiLM modulation
+# DINOv2 Two-Stream Tiled Model Configuration (Large)
+# Uses DINOv2 ViT-Large backbone from timm
 
 model_type: two_stream_tiled
 
 # Backbone configuration (DINOv2 from timm)
 backbone:
-  name: timm/vit_large_patch14_dinov2.lvd142m #vit_base_patch14_dinov2
+  name: timm/vit_large_patch14_dinov2.lvd142m
   pretrained: true
+  
+  # HuggingFace custom weights (set both to null to use standard timm pretrained)
+  hf_repo: null
+  hf_filename: null
 
 # Head configuration
 heads:
@@ -16,6 +20,7 @@ heads:
 # Feature extraction layers (null = last only, list = concat from those layers)
 # For DINOv2 ViT-Large: 24 blocks (0-23), e.g., [-4, -3, -2, -1] for last 4
 feature_layers: [17, 23]
+feature_pooling: cls_mean
 
 # Tiled model settings
 tiled:
