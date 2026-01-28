@@ -40,8 +40,8 @@ def create_callbacks(
         ModelCheckpoint(
             dirpath=checkpoint_dir,
             filename=f"best_model_fold{fold}",
-            monitor="val/score",
-            mode="max",
+            monitor="val/loss",
+            mode="min",
             save_top_k=1,
             save_last=False,
             verbose=True,
@@ -119,7 +119,7 @@ def train_fold(
     fold: int,
     stream_mode: str = "two_stream",
     # Training settings
-    img_size: int = 768,
+    img_size: Optional[int] = 768,
     batch_size: int = 8,
     num_workers: int = 4,
     n_folds: int = 5,
@@ -150,6 +150,34 @@ def train_fold(
     seed: int = 42,
     # Full image resize before stream splitting
     full_image_size: Optional[Tuple[int, int]] = None,
+    # Embedding-level MixUp augmentation
+    use_mixup: bool = False,
+    mixup_alpha: float = 0.4,
+    mixup_p: float = 0.5,
+    # Adaptive unfreezing (plateau-triggered backbone unfreezing)
+    adaptive_unfreeze: bool = False,
+    adaptive_unfreeze_patience: int = 5,
+    adaptive_unfreeze_mode: str = "partial",  # "full" or "partial"
+    adaptive_unfreeze_last_n: int = 6,
+    adaptive_unfreeze_lr_factor: float = 0.5,
+    # Learning rate warmup
+    use_warmup: bool = False,
+    warmup_epochs: int = 2,
+    warmup_start_factor: float = 0.1,
+    # EMA (Exponential Moving Average)
+    use_ema: bool = False,
+    ema_decay: float = 0.999,
+    # Gradient accumulation
+    accumulate_grad_batches: int = 1,
+    # Gradient clipping
+    gradient_clip_val: Optional[float] = None,
+    # Target transformation
+    use_log_transform: bool = False,
+    # Auxiliary losses / targets
+    aux_losses_enabled: bool = False,
+    aux_loss_weight: float = 0.1,
+    state_classes: Optional[List[str]] = None,
+    species_classes: Optional[List[str]] = None,
 ) -> Dict:
     """
     Train a single fold using PyTorch Lightning.
@@ -184,6 +212,28 @@ def train_fold(
         freeze_epochs=freeze_epochs,
         freeze_lr=freeze_lr,
         unfreeze_lr=unfreeze_lr,
+        # Embedding-level MixUp
+        use_mixup=use_mixup,
+        mixup_alpha=mixup_alpha,
+        mixup_p=mixup_p,
+        # Adaptive unfreezing
+        adaptive_unfreeze=adaptive_unfreeze,
+        adaptive_unfreeze_patience=adaptive_unfreeze_patience,
+        adaptive_unfreeze_mode=adaptive_unfreeze_mode,
+        adaptive_unfreeze_last_n=adaptive_unfreeze_last_n,
+        adaptive_unfreeze_lr_factor=adaptive_unfreeze_lr_factor,
+        # Learning rate warmup
+        use_warmup=use_warmup,
+        warmup_epochs=warmup_epochs,
+        warmup_start_factor=warmup_start_factor,
+        # EMA
+        use_ema=use_ema,
+        ema_decay=ema_decay,
+        # Target transformation
+        use_log_transform=use_log_transform,
+        # Auxiliary losses
+        aux_losses_enabled=aux_losses_enabled,
+        aux_loss_weight=aux_loss_weight,
     )
     
     # Create data module with pre-defined folds
@@ -196,6 +246,10 @@ def train_fold(
         num_workers=num_workers,
         fold_idx=fold,  # 0-indexed fold
         full_image_size=full_image_size,
+        use_log_transform=use_log_transform,
+        use_aux_targets=aux_losses_enabled,
+        state_classes=state_classes,
+        species_classes=species_classes,
     )
     
     # Prepare config for logging
@@ -259,6 +313,8 @@ def train_fold(
         enable_progress_bar=True,
         log_every_n_steps=10,
         deterministic=True,
+        accumulate_grad_batches=accumulate_grad_batches,
+        gradient_clip_val=gradient_clip_val,
     )
     
     # Train

@@ -1,0 +1,37 @@
+# DINOv3 Two-Stream Patch Mamba Model Configuration
+# Matches architecture from Kaggle DINOv3 notebook
+# Uses patch-level Mamba fusion for cross-image token interaction
+
+model_type: two_stream_patch_mamba
+
+# Backbone configuration (DINOv3 from timm)
+backbone:
+  # DINOv3 ViT-Huge+ (matches notebook)
+  name: timm/vit_large_patch14_dinov2.lvd142m #vit_huge_plus_patch16_dinov3.lvd1689m
+  pretrained: true
+  
+  # HuggingFace custom weights (set both to null to use standard timm pretrained)
+  hf_repo: null
+  hf_filename: null
+
+# Head configuration (matching notebook)
+heads:
+  dropout: 0.20  # Notebook uses 0.2
+  hidden_ratio: 0.50  # nf // 2 in notebook
+
+# Mamba fusion settings (patch-level, not tile-level)
+# Applied to concatenated patch tokens [B, 2N, D] from left+right images
+mamba:
+  layers: 2           # Number of LocalMambaBlocks to stack
+  kernel_size: 5      # Kernel size for depthwise conv (local receptive field)
+  dropout: 0.1        # Dropout rate after projection
+
+# Gradient checkpointing - CRITICAL for large ViT models
+# Saves ~50% VRAM at cost of ~20% slower training
+use_grad_checkpointing: false
+
+# Note: This model does NOT use tiling or feature_layers/feature_pooling
+# It operates directly on backbone patch tokens
+
+# Checkpoint
+save_path: ${checkpoint_dir}

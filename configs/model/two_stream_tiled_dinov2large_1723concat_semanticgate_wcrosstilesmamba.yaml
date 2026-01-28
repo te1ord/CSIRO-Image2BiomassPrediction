@@ -14,7 +14,7 @@ backbone:
 
 # Head configuration
 heads:
-  dropout: 0.3
+  dropout: 0.30
   hidden_ratio: 0.25
 
 # Feature extraction layers (null = last only, list = concat from those layers)
@@ -46,19 +46,12 @@ tiled:
   # - "mean_max": Concat mean + max (preserves both context and strongest signal, 2x dim)
   # - "attn": Attention-weighted average (learnable, highlights important tiles smoothly)
   # - "mamba": Mamba-style fusion (allows cross-tile interaction via gated CNN before pooling)
-  pooling: mean #tile_embed_fusion
+  pooling: tile_embed_fusion #tile_embed_fusion
   
   # Attention pooling settings (only used when pooling: attn)
   attn_hidden: 256   # Hidden dim for attention MLP
   attn_dropout: 0  # Dropout in attention MLP
   
-
-  # quality-based weighting 
-  quality_hidden: 64
-  quality_dropout: 0.0
-  quality_temperature: 1.0
-  quality_detach: True
-
   # Mamba fusion settings (only used when pooling: mamba)
   # Allows tokens from different tiles to interact before pooling
   mamba:
@@ -72,23 +65,8 @@ semantic:
   enabled: true  # Set to true to enable semantic features
   model_path: "google/siglip-so400m-patch14-384"
   freeze: true  # Keep SigLIP frozen (recommended)
-  semantic_features_pooling: concat #concat
+  semantic_features_pooling: gating #concat
   semantic_gate_hidden_ratio: 0.5
-
-# Auxiliary losses configuration (for metadata)
-aux_losses:
-  enabled: false
-  weight: 0.1   # Weight for each auxiliary loss component
-  # Number of classes for categorical metadata
-  # State: 4 (Tas, NSW, WA, Vic)
-  # Species: We will determine this dynamically in the datamodule
-
-  states_classes: ['Tas', 'NSW', 'WA', 'Vic']
-  species_classes: ['Ryegrass_Clover', 'Lucerne', 'SubcloverDalkeith', 'Ryegrass',
-       'Phalaris_Clover', 'SubcloverLosa', 'Clover', 'Fescue_CrumbWeed',
-       'Phalaris_Ryegrass_Clover', 'Phalaris', 'WhiteClover', 'Fescue',
-       'Phalaris_BarleyGrass_SilverGrass_SpearGrass_Clover_Capeweed',
-       'Phalaris_Clover_Ryegrass_Barleygrass_Bromegrass', 'Mixed']
 
 # Checkpoint
 save_path: ${checkpoint_dir}

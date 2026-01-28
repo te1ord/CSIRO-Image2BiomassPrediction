@@ -1,6 +1,6 @@
 defaults:
   - data: default
-  - model: two_stream_tiled_dinov2base_plantclef_pretrain
+  - model: two_stream_tiled_film_dinov2large
   - training: mlps_only
   - inference: default
   - augmentation: default
@@ -11,7 +11,7 @@ defaults:
 seed: 42
 device: cuda
 
-exp_name: our_split_mlps_only_dinov2base_plantclef_pretrain_7_11_cls_mean_pooling
+exp_name: our_split_mlps_only_dinov2large_17_23_feature_layers_cls_mean_pooling_w_semantic_features_vision_only_wembed_mixup_adaptive_unfreeze
 
 # Output directories
 output_dir: outputs

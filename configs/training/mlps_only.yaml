@@ -1,6 +1,7 @@
 # Two-Stage Fine-Tuning Training Configuration
 # Stage 1: Freeze backbone, train heads only
 # Stage 2: Unfreeze and fine-tune entire model
+# Optional: Adaptive unfreezing (unfreeze on plateau before stage2)
 
 # Stage 1: Frozen backbone
 stage1:
@@ -14,9 +15,18 @@ stage2:
 
 # Total epochs = stage1.epochs + stage2.epochs = 20
 
+# Adaptive unfreezing: Automatically unfreeze backbone if val score plateaus
+# This can help when frozen features are insufficient for the task
+adaptive_unfreeze:
+  enabled: false  # Set to true to enable plateau-triggered unfreezing
+  patience: 4     # Number of epochs without improvement to trigger unfreezing
+  mode: partial   # "full" = unfreeze all backbone blocks, "partial" = unfreeze last N blocks only
+  unfreeze_last_n: 2  # Number of blocks to unfreeze when mode=partial (e.g., 6 for ViT-Large = last 6 of 24)
+  lr_factor: 0.5  # Multiply current LR by this factor for unfrozen backbone layers (lower = more stable)
+
 # Which folds to train (null = all folds, or list like [0, 1, 2])
 # Folds are 0-indexed to match the 'fold' column in fold_assignments.csv
-folds_to_train: null
+folds_to_train: [0]
 
 # DataLoader settings
 batch_size: 8
@@ -30,19 +40,40 @@ optimizer:
   name: AdamW
   weight_decay: 0.01
 
+# Gradient clipping (prevents exploding gradients)
+gradient_clip:
+  enabled: true
+  max_norm: 1.0  # Clip gradients to this max norm (common values: 0.5, 1.0, 5.0)
+
 # Scheduler
 scheduler:
   enabled: true
   type: cosine  # "cosine" or "onecycle"
+  # Learning rate warmup: gradually increase LR at training start
+  # Helps stabilize early training especially with large models
+  warmup:
+    enabled: false
+    epochs: 5       # Number of warmup epochs (or fraction like 0.1 for 10% of total)
+    start_factor: 0.01  # Start LR = base_lr * start_factor, linearly ramp to base_lr
+
+# EMA (Exponential Moving Average) of model weights
+# Maintains a smoothed copy of model weights for more stable predictions
+# The EMA model is used for validation and saved as the final checkpoint
+ema:
+  enabled: true       # Set to true to enable EMA
+  decay: 0.999         # EMA decay rate (higher = slower update, more smoothing)
+  # Common values: 0.999 (slow), 0.9999 (very slow), 0.99 (fast)
+  # Rule of thumb: decay = 1 - 1/(num_updates_per_epoch * num_epochs / 10)
 
 # Early stopping (optional)
 early_stopping:
   enabled: true
-  patience: 5
+  patience: 8
 
 # Checkpoint settings
-save_best_only: true
-metric: score  # Save based on R² score, not loss
+# save_best_only: true
+# metric: val_loss  # Save based on R² score, not loss
+
 
 # Loss configuration
 loss:

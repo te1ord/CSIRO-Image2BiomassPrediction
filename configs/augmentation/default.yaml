@@ -4,6 +4,8 @@
 # Enable/disable augmentation
 use_augmentation: true
 
+use_log_transform: false
+
 # Geometric augmentations
 geometric:
   horizontal_flip:
@@ -27,4 +29,16 @@ color:
 normalize:
   mean: [0.485, 0.456, 0.406]
   std: [0.229, 0.224, 0.225]
+
+# Embedding-level MixUp augmentation
+# Applied after feature extraction, before MLP heads
+# Pipeline: extract features -> mixup embeddings -> train heads
+mixup:
+  # Enable/disable embedding-level mixup
+  enabled: true
+  # Beta distribution parameter (higher = more mixing)
+  # alpha=0.4 is common, alpha=1.0 gives uniform distribution
+  alpha: 0.4
+  # Probability of applying mixup per batch
+  p: 0.5
 

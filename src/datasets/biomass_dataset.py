@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
-from typing import Optional, Callable, Tuple, Union
+from typing import Optional, Callable, Tuple, Union, Dict
 
 
 class BiomassDataset(Dataset):
@@ -41,6 +41,10 @@ class BiomassDataset(Dataset):
         mode: str = "train",
         stream_mode: str = "two_stream",  # "single_stream" or "two_stream"
         full_image_size: Optional[Tuple[int, int]] = None,  # (width, height) to resize full image before processing
+        use_log_transform: bool = False, # If True, apply log1p to targets
+        return_aux_targets: bool = False,
+        state_to_idx: Optional[Dict[str, int]] = None,
+        species_to_idx: Optional[Dict[str, int]] = None,
     ):
         """
         Args:
@@ -51,6 +55,7 @@ class BiomassDataset(Dataset):
             stream_mode: 'single_stream' (full image) or 'two_stream' (left/right split)
             full_image_size: Optional (width, height) to resize full image before stream splitting.
                             None = keep original size. Use to test effect of early downscaling.
+            use_log_transform: If True, applies log(1+x) to target variables during training.
         """
         self.df = df.reset_index(drop=True)
         self.image_dir = image_dir
@@ -58,6 +63,18 @@ class BiomassDataset(Dataset):
         self.mode = mode
         self.stream_mode = stream_mode
         self.full_image_size = full_image_size
+        self.use_log_transform = use_log_transform
+        self.return_aux_targets = return_aux_targets
+
+        self.state_to_idx = state_to_idx
+        self.species_to_idx = species_to_idx
+        if self.return_aux_targets:
+            if self.state_to_idx is None:
+                states = sorted(self.df["State"].dropna().unique().tolist())
+                self.state_to_idx = {s: i for i, s in enumerate(states)}
+            if self.species_to_idx is None:
+                species = sorted(self.df["Species"].dropna().unique().tolist())
+                self.species_to_idx = {s: i for i, s in enumerate(species)}
         
         if stream_mode not in ["single_stream", "two_stream"]:
             raise ValueError(f"stream_mode must be 'single_stream' or 'two_stream', got {stream_mode}")
@@ -104,11 +121,26 @@ class BiomassDataset(Dataset):
                 img = self.transform(image=img)["image"]
             
             if self.mode == "train":
-                targets = torch.tensor([
+                targets_np = np.array([
                     row["Dry_Total_g"],
                     row["GDM_g"],
                     row["Dry_Green_g"],
-                ], dtype=torch.float32)
+                ], dtype=np.float32)
+                
+                # Apply log transform if enabled
+                if self.use_log_transform:
+                    targets_np = np.log1p(targets_np)
+                    
+                targets = torch.from_numpy(targets_np)
+                if self.return_aux_targets:
+                    aux_targets = {
+                        "height_cm": torch.tensor([float(row["Height_Ave_cm"])], dtype=torch.float32),
+                        "ndvi": torch.tensor([float(row["Pre_GSHH_NDVI"])], dtype=torch.float32),
+                        "state": torch.tensor(self.state_to_idx[str(row["State"])], dtype=torch.long),
+                        "species": torch.tensor(self.species_to_idx[str(row["Species"])], dtype=torch.long),
+                    }
+                    return img, targets, aux_targets
+
                 return img, targets
             else:
                 return img, row.get("sample_id", idx)
@@ -122,11 +154,26 @@ class BiomassDataset(Dataset):
                 right = self.transform(image=right)["image"]
             
             if self.mode == "train":
-                targets = torch.tensor([
+                targets_np = np.array([
                     row["Dry_Total_g"],
                     row["GDM_g"],
                     row["Dry_Green_g"],
-                ], dtype=torch.float32)
+                ], dtype=np.float32)
+                
+                # Apply log transform if enabled
+                if self.use_log_transform:
+                    targets_np = np.log1p(targets_np)
+                
+                targets = torch.from_numpy(targets_np)
+                if self.return_aux_targets:
+                    aux_targets = {
+                        "height_cm": torch.tensor([float(row["Height_Ave_cm"])], dtype=torch.float32),
+                        "ndvi": torch.tensor([float(row["Pre_GSHH_NDVI"])], dtype=torch.float32),
+                        "state": torch.tensor(self.state_to_idx[str(row["State"])], dtype=torch.long),
+                        "species": torch.tensor(self.species_to_idx[str(row["Species"])], dtype=torch.long),
+                    }
+                    return left, right, targets, aux_targets
+
                 return left, right, targets
             else:
                 return left, right, row.get("sample_id", idx)
@@ -147,7 +194,7 @@ class TestBiomassDataset(Dataset):
         df: pd.DataFrame,
         image_dir: str,
         transform: Optional[Callable] = None,
-        stream_mode: str = "two_stream",
+        stream_mode: str = "two_stream"
     ):
         self.df = df.reset_index(drop=True)
         self.image_dir = image_dir

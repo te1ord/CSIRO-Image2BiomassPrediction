@@ -1,0 +1,76 @@
+# Training Configuration for DINOv3 Patch Mamba Architecture
+# Same training procedure as mlps_only - only architecture is different
+# Stage 1: Freeze backbone, train heads only
+# Stage 2: Unfreeze and fine-tune entire model
+
+# Stage 1: Frozen backbone
+stage1:
+  epochs: 20
+  lr: 1.0e-4
+
+# Stage 2: Fine-tuning
+stage2:
+  epochs: 0
+  lr: 5e-4
+
+# Total epochs = stage1.epochs + stage2.epochs
+
+# Adaptive unfreezing: Automatically unfreeze backbone if val score plateaus
+adaptive_unfreeze:
+  enabled: false
+  patience: 4
+  mode: partial
+  unfreeze_last_n: 2
+  lr_factor: 0.5
+
+# Which folds to train (null = all folds, or list like [0, 1, 2])
+folds_to_train: [0]
+
+# DataLoader settings
+batch_size: 8
+num_workers: 4
+
+# Training precision
+precision: "16-mixed"
+
+# Optimizer
+optimizer:
+  name: AdamW
+  weight_decay: 0.01
+
+# Gradient clipping (prevents exploding gradients)
+gradient_clip:
+  enabled: true
+  max_norm: 1.0
+
+# Scheduler
+scheduler:
+  enabled: true
+  type: cosine
+  warmup:
+    enabled: false
+    epochs: 5
+    start_factor: 0.01
+
+# EMA (Exponential Moving Average) of model weights
+ema:
+  enabled: false
+  decay: 0.999
+
+# Early stopping
+early_stopping:
+  enabled: true
+  patience: 8
+
+# Checkpoint settings
+save_best_only: true
+metric: score
+
+# Loss configuration
+loss:
+  type: SmoothL1
+  beta: 1.0
+  weights:
+    total: 0.50
+    gdm: 0.20
+    green: 0.10

@@ -28,7 +28,7 @@ feature_layers: [7, 11]
 # - "cls": Use CLS token only (default, fast, dim=D)
 # - "mean": Mean pooling over all patch tokens (better spatial context, dim=D)
 # - "cls_mean": Concatenate CLS + mean patches (richest representation, dim=2D)
-feature_pooling: cls_mean
+feature_pooling: cls_mean #cls_mean
 
 # Tiled model settings
 tiled:

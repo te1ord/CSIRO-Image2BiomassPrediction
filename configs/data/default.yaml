@@ -15,6 +15,7 @@ fold_assignments_csv: ${data.data_root}/folds_groupby_data/fold_assignments.csv
 full_image_size: null
 
 # Size to resize each stream (left/right half or full image) after splitting
+# null = skip resize (use size from source/full_image_size after splitting)
 img_size: 518
 
 # Tile resolution for tiled models (resolution each tile is resized to before backbone)

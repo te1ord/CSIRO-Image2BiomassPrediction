@@ -11,7 +11,7 @@ defaults:
 seed: 42
 device: cuda
 
-exp_name: our_split_mlps_only_dinov2large_17_23_feature_layers_cls_mean_pooling
+exp_name: our_split_mlps_only_dinov2large_17_23_concat_fusion_feature_layers_cls_mean_pooling_qualityweightedtiles_w_semantic_concat_wembed_wmixuo_wema_newtrainaugs_gptaugs
 
 # Output directories
 output_dir: outputs

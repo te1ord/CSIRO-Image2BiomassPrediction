@@ -6,7 +6,7 @@ Uses pre-defined fold assignments from CSV (created by scripts/data_split.py)
 import pytorch_lightning as pl
 import pandas as pd
 from torch.utils.data import DataLoader
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List, Dict
 
 from src.datasets.biomass_dataset import BiomassDataset
 from src.augmentations.transforms import get_train_transforms, get_val_transforms
@@ -30,7 +30,7 @@ class BiomassDataModule(pl.LightningDataModule):
         fold_df: pd.DataFrame,
         image_dir: str,
         stream_mode: str = "two_stream",
-        img_size: int = 768,
+        img_size: Optional[int] = 768,
         batch_size: int = 8,
         num_workers: int = 4,
         # Fold settings
@@ -39,18 +39,25 @@ class BiomassDataModule(pl.LightningDataModule):
         use_augmentation: bool = True,
         # Full image resize before stream splitting
         full_image_size: Optional[Tuple[int, int]] = None,
+        # Target transformation
+        use_log_transform: bool = False,
+        # Auxiliary targets (metadata supervision)
+        use_aux_targets: bool = False,
+        state_classes: Optional[List[str]] = None,
+        species_classes: Optional[List[str]] = None,
     ):
         """
         Args:
             fold_df: DataFrame with pre-defined 'fold' column (0-indexed)
             image_dir: Path to image directory
             stream_mode: "single_stream" or "two_stream"
-            img_size: Image size for transforms
+            img_size: Image size for transforms (None = skip resize of each stream)
             batch_size: Batch size
             num_workers: Number of data loading workers
             fold_idx: Which fold to use as validation (0-indexed)
             use_augmentation: Whether to use training augmentations
             full_image_size: Optional (width, height) to resize full image before stream splitting
+            use_log_transform: If True, apply log1p to target variables
         """
         super().__init__()
         self.save_hyperparameters(ignore=["fold_df"])
@@ -64,6 +71,23 @@ class BiomassDataModule(pl.LightningDataModule):
         self.fold_idx = fold_idx
         self.use_augmentation = use_augmentation
         self.full_image_size = full_image_size
+        self.use_log_transform = use_log_transform
+
+        # Aux targets
+        self.use_aux_targets = bool(use_aux_targets)
+        if self.use_aux_targets:
+            if state_classes is None:
+                state_classes = sorted(self.fold_df["State"].dropna().unique().tolist())
+            if species_classes is None:
+                species_classes = sorted(self.fold_df["Species"].dropna().unique().tolist())
+        self.state_classes = state_classes
+        self.species_classes = species_classes
+        self.state_to_idx: Optional[Dict[str, int]] = (
+            {s: i for i, s in enumerate(self.state_classes)} if self.use_aux_targets else None
+        )
+        self.species_to_idx: Optional[Dict[str, int]] = (
+            {s: i for i, s in enumerate(self.species_classes)} if self.use_aux_targets else None
+        )
         
         # Will be set in setup()
         self.train_dataset = None
@@ -105,6 +129,10 @@ class BiomassDataModule(pl.LightningDataModule):
             mode="train",
             stream_mode=self.stream_mode,
             full_image_size=self.full_image_size,
+            use_log_transform=self.use_log_transform,
+            return_aux_targets=self.use_aux_targets,
+            state_to_idx=self.state_to_idx,
+            species_to_idx=self.species_to_idx,
         )
         
         self.val_dataset = BiomassDataset(
@@ -114,6 +142,10 @@ class BiomassDataModule(pl.LightningDataModule):
             mode="train",
             stream_mode=self.stream_mode,
             full_image_size=self.full_image_size,
+            use_log_transform=self.use_log_transform,
+            return_aux_targets=self.use_aux_targets,
+            state_to_idx=self.state_to_idx,
+            species_to_idx=self.species_to_idx,
         )
     
     def train_dataloader(self) -> DataLoader:

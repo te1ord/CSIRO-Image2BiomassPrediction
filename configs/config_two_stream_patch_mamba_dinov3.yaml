@@ -1,7 +1,7 @@
 defaults:
   - data: default
-  - model: two_stream_tiled_dinov2base_plantclef_pretrain
-  - training: mlps_only
+  - model: two_stream_patch_mamba_dinov3
+  - training: dinov3_notebook
   - inference: default
   - augmentation: default
   - logging: wandb
@@ -11,7 +11,7 @@ defaults:
 seed: 42
 device: cuda
 
-exp_name: our_split_mlps_only_dinov2base_plantclef_pretrain_7_11_cls_mean_pooling
+exp_name: dinov3_patch_mamba_heads_only
 
 # Output directories
 output_dir: outputs
@@ -21,4 +21,3 @@ checkpoint_dir: checkpoints/${logging.experiment_name}
 hydra:
   run:
     dir: ${output_dir}/${now:%Y-%m-%d_%H-%M-%S}
- 

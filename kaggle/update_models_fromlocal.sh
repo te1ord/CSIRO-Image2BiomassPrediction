@@ -55,83 +55,83 @@ N_FOLDS=5
 FIRST_FOLD=0
 LAST_FOLD=$((N_FOLDS - 1))
 
-# ─── 1) VALIDATE LOCAL CHECKPOINTS ────────────────────────────────────────
-echo ">>> Validating local checkpoint directory"
+# # ─── 1) VALIDATE LOCAL CHECKPOINTS ────────────────────────────────────────
+# echo ">>> Validating local checkpoint directory"
 
-if [ ! -d "$LOCAL_CHECKPOINT_DIR" ]; then
-    echo "❌ Error: Directory '$LOCAL_CHECKPOINT_DIR' does not exist"
-    exit 1
-fi
+# if [ ! -d "$LOCAL_CHECKPOINT_DIR" ]; then
+#     echo "❌ Error: Directory '$LOCAL_CHECKPOINT_DIR' does not exist"
+#     exit 1
+# fi
 
-MISSING_FOLDS=()
+# MISSING_FOLDS=()
 
-for ((fold=FIRST_FOLD; fold<=LAST_FOLD; fold++)); do
-    checkpoint_path="${LOCAL_CHECKPOINT_DIR}/best_model_fold${fold}.ckpt"
-    if [ ! -f "$checkpoint_path" ]; then
-        MISSING_FOLDS+=("fold${fold}")
-    fi
-done
+# for ((fold=FIRST_FOLD; fold<=LAST_FOLD; fold++)); do
+#     checkpoint_path="${LOCAL_CHECKPOINT_DIR}/best_model_fold${fold}.ckpt"
+#     if [ ! -f "$checkpoint_path" ]; then
+#         MISSING_FOLDS+=("fold${fold}")
+#     fi
+# done
 
-if [ ${#MISSING_FOLDS[@]} -ne 0 ]; then
-    echo "❌ Error: Missing checkpoint files for: ${MISSING_FOLDS[*]}"
-    echo "Expected files: best_model_fold0.ckpt ... best_model_fold4.ckpt"
-    exit 1
-fi
+# if [ ${#MISSING_FOLDS[@]} -ne 0 ]; then
+#     echo "❌ Error: Missing checkpoint files for: ${MISSING_FOLDS[*]}"
+#     echo "Expected files: best_model_fold0.ckpt ... best_model_fold4.ckpt"
+#     exit 1
+# fi
 
-echo "✅ Found all ${N_FOLDS} checkpoint files"
+# echo "✅ Found all ${N_FOLDS} checkpoint files"
 
-# ─── 2) DOWNLOAD EXISTING KAGGLE DATASET (ONLY IF EMPTY) ───────────────────
-echo ">>> Checking local Kaggle dataset directory"
+# # ─── 2) DOWNLOAD EXISTING KAGGLE DATASET (ONLY IF EMPTY) ───────────────────
+# echo ">>> Checking local Kaggle dataset directory"
 
-if [ ! -d "$KAGGLE_DEST_DIR" ] || [ -z "$(ls -A "$KAGGLE_DEST_DIR" 2>/dev/null)" ]; then
-    echo ">>> Local Kaggle dataset is empty, downloading from Kaggle"
-    mkdir -p "$KAGGLE_DEST_DIR"
+# if [ ! -d "$KAGGLE_DEST_DIR" ] || [ -z "$(ls -A "$KAGGLE_DEST_DIR" 2>/dev/null)" ]; then
+#     echo ">>> Local Kaggle dataset is empty, downloading from Kaggle"
+#     mkdir -p "$KAGGLE_DEST_DIR"
 
-    kaggle datasets download \
-        -d "$KAGGLE_DATASET_NAME" \
-        -p "$KAGGLE_DEST_DIR" \
-        --unzip \
-        --force
+#     kaggle datasets download \
+#         -d "$KAGGLE_DATASET_NAME" \
+#         -p "$KAGGLE_DEST_DIR" \
+#         --unzip \
+#         --force
 
-    echo "✅ Downloaded existing dataset to $KAGGLE_DEST_DIR"
-else
-    echo "✅ Local Kaggle dataset already exists, skipping download"
-fi
+#     echo "✅ Downloaded existing dataset to $KAGGLE_DEST_DIR"
+# else
+#     echo "✅ Local Kaggle dataset already exists, skipping download"
+# fi
 
-# ─── 3) CREATE ENSEMBLE FOLDER AND COPY CHECKPOINTS ────────────────────────
-ENSEMBLE_DIR="${KAGGLE_DEST_DIR}/${ENSEMBLE_NAME}"
+## ─── 3) CREATE ENSEMBLE FOLDER AND COPY CHECKPOINTS ────────────────────────
+# ENSEMBLE_DIR="${KAGGLE_DEST_DIR}/${ENSEMBLE_NAME}"
 
-echo ">>> Creating ensemble folder: $ENSEMBLE_NAME"
+# echo ">>> Creating ensemble folder: $ENSEMBLE_NAME"
 
-if [ -d "$ENSEMBLE_DIR" ]; then
-    echo "❌ Error: Ensemble folder '$ENSEMBLE_NAME' already exists. Aborting to prevent overwrite."
-    exit 1
-fi
+# if [ -d "$ENSEMBLE_DIR" ]; then
+#     echo "❌ Error: Ensemble folder '$ENSEMBLE_NAME' already exists. Aborting to prevent overwrite."
+#     exit 1
+# fi
 
-mkdir -p "$ENSEMBLE_DIR"
+# mkdir -p "$ENSEMBLE_DIR"
 
-echo ">>> Copying checkpoints to ensemble folder"
-for ((fold=FIRST_FOLD; fold<=LAST_FOLD; fold++)); do
-    cp "${LOCAL_CHECKPOINT_DIR}/best_model_fold${fold}.ckpt" "$ENSEMBLE_DIR/"
-    echo "  ✓ Copied best_model_fold${fold}.ckpt"
-done
+# echo ">>> Copying checkpoints to ensemble folder"
+# for ((fold=FIRST_FOLD; fold<=LAST_FOLD; fold++)); do
+#     cp "${LOCAL_CHECKPOINT_DIR}/best_model_fold${fold}.ckpt" "$ENSEMBLE_DIR/"
+#     echo "  ✓ Copied best_model_fold${fold}.ckpt"
+# done
 
-# ─── 4) CREATE ENSEMBLE INFO FILE ─────────────────────────────────────────
-echo ">>> Creating ensemble metadata"
+# # ─── 4) CREATE ENSEMBLE INFO FILE ─────────────────────────────────────────
+# echo ">>> Creating ensemble metadata"
 
-cat > "${ENSEMBLE_DIR}/ensemble_info.txt" <<EOF
-Ensemble Name: ${ENSEMBLE_NAME}
-Number of Folds: ${N_FOLDS}
-Source Directory: ${LOCAL_CHECKPOINT_DIR}
-Upload Date: $(date '+%Y-%m-%d %H:%M:%S')
+# cat > "${ENSEMBLE_DIR}/ensemble_info.txt" <<EOF
+# Ensemble Name: ${ENSEMBLE_NAME}
+# Number of Folds: ${N_FOLDS}
+# Source Directory: ${LOCAL_CHECKPOINT_DIR}
+# Upload Date: $(date '+%Y-%m-%d %H:%M:%S')
 
-Checkpoint Files:
-$(for ((fold=FIRST_FOLD; fold<=LAST_FOLD; fold++)); do
-    echo "  - best_model_fold${fold}.ckpt"
-done)
-EOF
+# Checkpoint Files:
+# $(for ((fold=FIRST_FOLD; fold<=LAST_FOLD; fold++)); do
+#     echo "  - best_model_fold${fold}.ckpt"
+# done)
+# EOF
 
-echo "✅ Created ensemble with ${N_FOLDS} checkpoints"
+# echo "✅ Created ensemble with ${N_FOLDS} checkpoints"
 
 # ─── 5) UPLOAD TO KAGGLE ──────────────────────────────────────────────────
 cd "${BASE_DIR}" || exit 1

@@ -1,0 +1,51 @@
+# DINOv2 Two-Stream Tiled Model Configuration (Large)
+# Uses DINOv2 ViT-Large backbone from timm
+
+model_type: two_stream_tiled_film
+
+# Backbone configuration (DINOv2 from timm)
+backbone:
+  name: timm/vit_large_patch14_dinov2.lvd142m
+  pretrained: true
+  
+  # HuggingFace custom weights (set both to null to use standard timm pretrained)
+  hf_repo: null
+  hf_filename: null
+
+# Head configuration
+heads:
+  dropout: 0.30
+  hidden_ratio: 0.25
+
+# Feature extraction layers (null = last only, list = concat from those layers)
+# For DINOv2 ViT-Large: 24 blocks (0-23), e.g., [-4, -3, -2, -1] for last 4
+feature_layers: [17, 23]
+
+# Feature pooling method for patch tokens:
+# - "cls": CLS token only (fast, dim=D)
+# - "mean": Mean pooling over patches (dim=D)
+# - "gem": GeM pooling over patches (weighted toward stronger activations, dim=D)
+# - "cls_mean": Concat CLS + mean patches (dim=2D)
+# - "cls_gem": Concat CLS + GeM patches (best of both worlds, dim=2D)
+feature_pooling: cls_mean
+
+# GeM (Generalized Mean) pooling settings
+# Used when feature_pooling is "gem" or "cls_gem"
+# p=1 → mean pooling, p→∞ → max pooling, p=3 is typical
+gem:
+  p: 3.0  # Power parameter (higher = more weight to strong activations)
+  learnable: true  # Whether p is a learnable parameter
+
+# Tiled model settings
+tiled:
+  grid: [2, 2]
+
+# Semantic features configuration (SigLIP-based concept similarity)
+# Adds ~12 interpretable features: concept scores + derived ratios
+semantic:
+  enabled: true  # Set to true to enable semantic features
+  model_path: "google/siglip-so400m-patch14-384"
+  freeze: true  # Keep SigLIP frozen (recommended)
+
+# Checkpoint
+save_path: ${checkpoint_dir}

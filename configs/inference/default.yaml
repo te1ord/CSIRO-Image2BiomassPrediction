@@ -9,10 +9,15 @@ use_amp: true
 
 # Test-Time Augmentation
 use_tta: true
-tta_views:
-  - original
-  - hflip
-  - vflip
+# tta_views:
+#   - original
+#   - hflip
+#   - vflip
+
+# Post-processing: constraint reconciliation
+# Ensures predictions satisfy: GDM = Green + Clover, Total = GDM + Dead
+# Uses orthogonal projection onto constraint-satisfying subspace
+use_reconciliation: true
 
 # Model checkpoints
 checkpoint_dir: ${checkpoint_dir}
@@ -24,8 +29,22 @@ checkpoint_dir: ${checkpoint_dir}
 # - [1]: load only fold 1 (single model inference)
 folds: null
 
+# Ensemble weights for weighted averaging (optional):
+# - null: use simple mean (equal weights)
+# - [w0, w1, ...]: weights for each fold (will be normalized to sum to 1)
+# Example: [0.25, 0.20, 0.20, 0.18, 0.17] - give more weight to better-performing folds
+# Tip: Use validation scores to set weights (e.g., 1/val_loss or softmax of -val_loss)
+ensemble_weights: null
+
 # Checkpoint filename template ({fold} will be replaced with fold number)
 checkpoint_template: "best_model_fold{fold}.ckpt"
 
+# Memory-efficient loading: share frozen backbone and semantic_branch across folds
+# This is safe because these modules are frozen during training and identical across folds
+# Saves ~1-2GB per additional fold when using DINOv2 + SigLIP
+# Set to true for ensemble inference, false if comparing different backbone weights
+share_frozen: true
+
 # Output
 submission_file: submission.csv
+
