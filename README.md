@@ -1,283 +1,98 @@
-# CSIRO Biomass Prediction - Two-Stream Multi-Head Model
-
-A structured PyTorch Lightning implementation for the CSIRO Pasture Biomass Prediction competition.
-
-## 🎯 Key Features
-
-- **PyTorch Lightning**: Clean, modular training code with built-in best practices
-- **W&B Integration**: Track experiments, metrics, and hyperparameters
-- **Two-Stream Architecture**: Processes left/right image halves separately
-- **Multi-Head Output**: Specialized heads for each target
-- **Two-Stage Fine-Tuning**: Freeze → Unfreeze training strategy
-- **GroupKFold CV**: Prevents data leakage by grouping by Sampling_Date
-- **TTA Support**: Test-Time Augmentation for better inference
-
-## 📊 Methodology
-
-### 1. Core Strategy
-Predict only 3 primary targets (avoiding redundancy):
-- `Dry_Total_g` (50% weight)
-- `GDM_g` (20% weight)
-- `Dry_Green_g` (10% weight)
-
-Derived targets are calculated:
-- `Dry_Dead_g = Dry_Total_g - GDM_g`
-- `Dry_Clover_g = GDM_g - Dry_Green_g`
-
-### 2. Two-Stream Processing
-- Each 2000×1000 image → two 1000×1000 patches (left/right)
-- Resize to 768×768 for high-resolution detail
-- Augmentations applied independently to each patch
-
-### 3. Model Architecture
-```
-img_left  → backbone → features_left  ─┐
-                                        ├→ concat → head_total → Dry_Total_g
-img_right → backbone → features_right ─┤          → head_gdm   → GDM_g
-                                                  → head_green → Dry_Green_g
-```
-
-### 4. Training Strategy
-- **Stage 1** (Epochs 1-5): Backbone frozen, train heads only, LR=1e-4
-- **Stage 2** (Epochs 6-20): Fine-tune entire model, LR=1e-5
-- Save checkpoint based on highest R² score
-
-## 📁 Project Structure
-
-```
-├── configs/                    # Hydra configuration files
-│   ├── augmentation/          
-│   │   └── default.yaml       
-│   ├── data/
-│   │   └── default.yaml       
-│   ├── inference/
-│   │   └── default.yaml       
-│   ├── logging/
-│   │   └── wandb.yaml         # W&B settings
-│   ├── model/
-│   │   ├── two_stream.yaml    
-│   │   └── dinov2_tiled.yaml  
-│   ├── training/
-│   │   └── two_stage.yaml     
-│   └── config.yaml            
-│
-├── src/
-│   ├── augmentations/         
-│   ├── datasets/              
-│   ├── inference/             
-│   ├── models/                
-│   └── trainer/
-│       ├── lightning_module.py     # LightningModule
-│       ├── lightning_datamodule.py # LightningDataModule
-│       ├── lightning_trainer.py    # Training utilities
-│       └── pytorch_trainer.py      # Legacy trainer
-│
-├── scripts/
-│   ├── train.py              
-│   └── inference.py          
-│
-└── data/csiro-biomass/       
-```
-
-## 🚀 Quick Start
-
-### 1. Install Dependencies
-
-```bash
-poetry config virtualenvs.in-project true
-poetry install --no-root
-poetry env activate
-```
-
-Or with pip:
-```bash
-pip install torch torchvision pytorch-lightning timm albumentations hydra-core wandb rich
-```
-
-### 2. Login to W&B (Optional)
-
-```bash
-wandb login
-```
+# CSIRO-Image2BiomassPrediction (Kaggle)
 
-### 3. Train Model
+Our solution for the **CSIRO Image2BiomassPrediction** Kaggle competition: a **DINO-based multi-tile regressor** with **physics-aware post-processing** and an optional **ensemble** with public models + classic ML on embeddings.
 
-```bash
-# Default: Two-stream with ConvNeXt-Tiny + W&B logging
-python scripts/train.py
+**Result:** peaked at **156 / 3803 (silver zone)** during the competition; after the final evaluation shake-up finished **279 / 3803 (bronze medal)**.
 
-# DINOv2 with tiling and FiLM
-python scripts/train.py model=dinov2_tiled
+---
 
-# Disable W&B logging
-python scripts/train.py logging.enabled=false
+## Key ideas
 
-# Custom experiment name
-python scripts/train.py logging.experiment_name=my_experiment
+- **Leakage-resistant CV:** **Stratified-Group K-Fold** grouped by **sampling date**
+- **Metric:** **Weighted R²** (per-row weights depend on target type)
+- **Backbone:** **DINOv2 (ViT)** family features (consistently outperformed other backbones)
+- **Spatial modeling:** split image into **2 halves**, create **4 tiles per half**, extract features per tile, then **average** tiles
+- **Feature recipe:** concatenate **CLS + mean patch tokens** from **blocks 17 & 23**, then fuse left/right halves
+- **Regularization:** **embedding mixup**
+- **Semantics:** concatenate with **SigLIP** embeddings (optional)
+- **Heads:** predict **3 primary targets** → derive the rest with constraints:
+  - Predict: `Total`, `GDM`, `Green`
+  - Derive: `Dead = Total - GDM`, `Clover = GDM - Green`
+- **Post-processing:** enforce **physical realism** (non-negativity, ordering constraints)
 
-# Custom W&B project
-python scripts/train.py logging.project=my-project logging.entity=my-team
-```
+---
 
-### 4. Run Inference
+## Training
 
-```bash
-python scripts/inference.py
-```
+- Loss: **Huber**
+- Optimizer: **Adam**
+- Scheduler: **Cosine**
+- Early stopping on CV
+- Two-stage training:
+  1. **Heads-only** warm-up (frozen backbone)
+  2. Full training (or partial unfreeze depending on experiment)
+- Head MLP: `dropout=0.3`, `hidden_ratio=0.25`
 
-## 📊 W&B Logging
+Augmentations used:
+- horizontal/vertical flips, rotations, color jitter
+- ImageNet normalization
 
-The trainer automatically logs to Weights & Biases:
+---
 
-### Metrics Logged
-- `train/loss` - Training loss (per step and epoch)
-- `train/loss_total`, `train/loss_gdm`, `train/loss_green` - Individual losses
-- `train/lr` - Learning rate
-- `val/loss` - Validation loss
-- `val/score` - Competition weighted R² score
-- `val/r2_total`, `val/r2_gdm`, `val/r2_green` - Individual R² scores
-- `val/r2_dead`, `val/r2_clover` - Derived target R² scores
-- `stage` - Current training stage (1=frozen, 2=fine-tuning)
+## Inference pipeline (high level)
 
-### Configuration
-```yaml
-# configs/logging/wandb.yaml
-enabled: true
-project: csiro-biomass
-entity: null  # Your W&B username/team
-experiment_name: ${model.model_type}_${model.backbone.name}
-```
+1. image → **split into left/right halves**
+2. each half → **4 tiles**
+3. each tile → DINO features (**CLS + mean** from blocks **17 & 23**)
+4. average features across tiles (per half)
+5. concat halves → (optional) **mixup embeddings during training**
+6. concat with **SigLIP** semantic features (optional)
+7. 3 regression heads → derive clover/dead → **post-process**
 
-### Command Line Overrides
-```bash
-# Disable W&B
-python scripts/train.py logging.enabled=false
+---
 
-# Change project
-python scripts/train.py logging.project=my-project
+## Ensemble (final boost)
 
-# Custom experiment name
-python scripts/train.py logging.experiment_name=exp_001
-```
+Best scoring submission used an ensemble of:
+- my DINO-based model
+- a **public DINOv3** model
+- **LightGBM / CatBoost** trained on **SigLIP embeddings**
 
-## ⚙️ Configuration
+---
 
-### Model Variants
+## What didn’t help (selected experiments)
 
-| Config | Backbone | Features |
-|--------|----------|----------|
-| `model=two_stream` | ConvNeXt-Tiny | Basic two-stream |
-| `model=dinov2_tiled` | DINOv2 ViT-B/14 | Tiling + FiLM modulation |
+- domain pretraining (PlantCLEF / Irish grass)
+- alternative pooling (CLS/mean/max combos, GeM across layers)
+- attention between blocks (17/23), complex fusion (FiLM/gating/quality-weighted)
+- auxiliary metadata losses
+- sliding-window aggregation
+- aggressive augmentations and large TTA sets
+- adaptive unfreezing schedules beyond the simple two-stage approach
 
-### Key Parameters
+---
 
-```yaml
-# Data
-data.img_size: 768          
-data.n_folds: 5             
+## Repo usage
 
-# Training
-training.stage1.epochs: 5   
-training.stage2.epochs: 15  
-training.batch_size: 8      
-training.precision: "16-mixed"  # Mixed precision training
+This repo contains training/inference code and notebooks used to reproduce the approach.
 
-# Model
-model.heads.dropout: 0.30   
-model.heads.hidden_ratio: 0.25
+Typical workflow:
+- configure CV split + paths
+- train folds
+- run inference
+- (optional) ensemble and submit
 
-# Logging
-logging.enabled: true
-logging.project: csiro-biomass
-```
+> Note: paths/config names depend on your local setup and Kaggle dataset layout.
 
-## 📈 Expected Results
+---
 
-With the two-stream ConvNeXt-Tiny model:
+## License
 
-| Target | Validation R² |
-|--------|---------------|
-| Dry_Total_g | ~0.55-0.65 |
-| GDM_g | ~0.50-0.60 |
-| Dry_Green_g | ~0.60-0.70 |
-| **Weighted Score** | **~0.55-0.65** |
+MIT
 
-## 🔧 Advanced Usage
+---
 
-### Custom Backbone
+## Citation / Acknowledgements
 
-```bash
-python scripts/train.py model.backbone.name=efficientnet_b0
-```
-
-### Early Stopping
-
-```bash
-python scripts/train.py training.early_stopping.enabled=true training.early_stopping.patience=10
-```
-
-### Hyperparameter Sweep
-
-```bash
-python scripts/train.py -m \
-    training.stage2.lr=1e-5,5e-6,1e-6 \
-    model.heads.dropout=0.2,0.3,0.4
-```
-
-### Train Single Fold
-
-```python
-from src.trainer import train_fold
-
-result = train_fold(
-    model_fn=model_fn,
-    train_df=train_df,
-    image_dir=image_dir,
-    fold=1,
-    n_folds=5,
-    use_wandb=True,
-)
-```
-
-## 🏗️ Architecture
-
-### Lightning Module
-
-The `BiomassLightningModule` handles:
-- Two-stage training (freeze/unfreeze)
-- Loss computation with competition weights
-- R² metric calculation
-- Automatic logging
-
-### DataModule
-
-The `BiomassDataModule` handles:
-- GroupKFold splitting
-- Train/val data loading
-- Augmentation
-
-### Callbacks
-
-- `ModelCheckpoint`: Save best model by R² score
-- `LearningRateMonitor`: Log learning rate
-- `RichProgressBar`: Beautiful progress display
-- `EarlyStopping`: Optional early stopping
-
-## 📝 Key Differences from Legacy Trainer
-
-| Aspect | Legacy (`pytorch_trainer.py`) | Lightning |
-|--------|-------------------------------|-----------|
-| Training loop | Manual | Automatic |
-| Logging | Manual print | W&B + CSV |
-| Checkpointing | Manual | Automatic |
-| Mixed precision | Manual GradScaler | Built-in |
-| Progress | tqdm | Rich |
-| Multi-GPU | Not supported | Automatic |
-
-## 📚 References
-
-- [PyTorch Lightning](https://lightning.ai/) - Training framework
-- [Weights & Biases](https://wandb.ai/) - Experiment tracking
-- [timm](https://github.com/huggingface/pytorch-image-models) - PyTorch Image Models
-- [Albumentations](https://albumentations.ai/) - Image augmentation
-- [Hydra](https://hydra.cc/) - Configuration management
+- Kaggle CSIRO Image2BiomassPrediction competition organizers and community
+- DINO / SigLIP authors and open-source ecosystem (PyTorch, timm, albumentations)
